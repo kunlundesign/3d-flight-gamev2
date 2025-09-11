@@ -5,6 +5,7 @@ export interface InputState {
   yaw: number;
   speed: number;
   shoot: boolean;
+  bomb: boolean;
   mouseX: number;
   mouseY: number;
 }
@@ -16,6 +17,7 @@ export class InputHandler {
     yaw: 0,
     speed: 0.5,
     shoot: false,
+    bomb: false,
     mouseX: 0,
     mouseY: 0
   };
@@ -185,7 +187,37 @@ export class InputHandler {
   }
 
   public update(): void {
-    // Reset frame-based inputs
-    // (currently none, but could be used for single-frame inputs)
+    // Handle keyboard controls
+    if (this.isPointerLocked) {
+      // Pitch control (W/S or Arrow Up/Down)
+      if (this.keys.has('KeyW') || this.keys.has('ArrowUp')) {
+        this.inputState.pitch += 0.02;
+      }
+      if (this.keys.has('KeyS') || this.keys.has('ArrowDown')) {
+        this.inputState.pitch -= 0.02;
+      }
+      
+      // Yaw control (A/D or Arrow Left/Right)
+      if (this.keys.has('KeyA') || this.keys.has('ArrowLeft')) {
+        this.inputState.yaw += 0.02;
+      }
+      if (this.keys.has('KeyD') || this.keys.has('ArrowRight')) {
+        this.inputState.yaw -= 0.02;
+      }
+      
+      // Speed control (Shift/Ctrl)
+      if (this.keys.has('ShiftLeft') || this.keys.has('ShiftRight')) {
+        this.inputState.speed = Math.min(this.inputState.speed + 0.01, 1);
+      }
+      if (this.keys.has('ControlLeft') || this.keys.has('ControlRight')) {
+        this.inputState.speed = Math.max(this.inputState.speed - 0.01, 0);
+      }
+      
+      // Clamp pitch
+      this.inputState.pitch = THREE.MathUtils.clamp(this.inputState.pitch, -Math.PI / 4, Math.PI / 4);
+    }
+    
+    // Bomb control (Space)
+    this.inputState.bomb = this.keys.has('Space');
   }
 }

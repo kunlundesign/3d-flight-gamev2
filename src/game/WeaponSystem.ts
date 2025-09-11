@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import gameConfig from '../GameConfig.json';
+import { Bomb } from './Bomb';
 
 export interface Target {
   getPosition(): THREE.Vector3;
@@ -12,11 +13,15 @@ export class WeaponSystem {
   private scene: THREE.Scene;
   private camera: THREE.PerspectiveCamera;
   private lastShotTime: number = 0;
+  private lastBombTime: number = 0;
   private fireRate: number;
+  private bombRate: number = 1; // 每秒1颗炸弹
   private damage: number;
   private bulletSpeed: number;
   private raycaster: THREE.Raycaster;
   private crosshair!: HTMLElement;
+  private bombSight!: HTMLElement;
+  private bombs: Bomb[] = [];
 
   constructor(scene: THREE.Scene, camera: THREE.PerspectiveCamera) {
     this.scene = scene;
@@ -27,6 +32,7 @@ export class WeaponSystem {
     this.raycaster = new THREE.Raycaster();
     
     this.createCrosshair();
+    this.createBombSight();
   }
 
   private createCrosshair(): void {
@@ -48,7 +54,26 @@ export class WeaponSystem {
     document.body.appendChild(this.crosshair);
   }
 
-  public shoot(targets: Target[]): { hit: boolean; target?: Target } {
+  private createBombSight(): void {
+    this.bombSight = document.createElement('div');
+    this.bombSight.id = 'bombsight';
+    this.bombSight.style.cssText = `
+      position: fixed;
+      top: 60%;
+      left: 50%;
+      width: 30px;
+      height: 30px;
+      margin: -15px 0 0 -15px;
+      border: 2px solid #ffaa00;
+      border-radius: 50%;
+      pointer-events: none;
+      z-index: 1000;
+      opacity: 0.6;
+    `;
+    document.body.appendChild(this.bombSight);
+  }
+
+  public shoot(targets: Target[], origin?: THREE.Vector3, direction?: THREE.Vector3): { hit: boolean; target?: Target } {
     const currentTime = Date.now();
     const timeSinceLastShot = currentTime - this.lastShotTime;
     const shotInterval = 1000 / this.fireRate; // Convert rate to milliseconds
@@ -62,9 +87,13 @@ export class WeaponSystem {
     // Create muzzle flash effect
     this.createMuzzleFlash();
 
-    // Perform raycast from camera center
-    this.raycaster.setFromCamera(new THREE.Vector2(0, 0), this.camera);
-    
+    // Perform raycast from custom origin/direction or camera center
+    if (origin && direction) {
+      this.raycaster.set(origin, direction);
+    } else {
+      this.raycaster.setFromCamera(new THREE.Vector2(0, 0), this.camera);
+    }
+
     // Check for hits on targets
     let closestTarget: Target | null = null;
     let closestDistance = Infinity;
@@ -76,13 +105,13 @@ export class WeaponSystem {
       const boundingBox = target.getBoundingBox();
 
       // Simple distance check first (optimization)
-      const distance = this.camera.position.distanceTo(targetPosition);
+      const distance = (origin ?? this.camera.position).distanceTo(targetPosition);
       if (distance > 2000) continue; // Max range
 
       // Check if ray intersects with target's bounding box
       const ray = this.raycaster.ray;
       const intersection = ray.intersectBox(boundingBox, new THREE.Vector3());
-      
+
       if (intersection && distance < closestDistance) {
         closestTarget = target;
         closestDistance = distance;
@@ -92,17 +121,62 @@ export class WeaponSystem {
     if (closestTarget) {
       // Apply damage
       closestTarget.takeDamage(this.damage);
-      
+
       // Create hit effect
       this.createHitEffect(closestTarget.getPosition());
-      
+
       return { hit: true, target: closestTarget };
     }
 
     // Create bullet trail effect even if we missed
-    this.createBulletTrail();
+    this.createBulletTrail(origin, direction);
 
     return { hit: false };
+  }
+
+  public dropBomb(position: THREE.Vector3, velocity: THREE.Vector3): boolean {
+    const currentTime = Date.now();
+    const timeSinceLastBomb = currentTime - this.lastBombTime;
+    const bombInterval = 1000 / this.bombRate;
+
+    if (timeSinceLastBomb < bombInterval) {
+      return false; // Rate limiting
+    }
+
+    this.lastBombTime = currentTime;
+
+    // 创建炸弹
+    const bomb = new Bomb(this.scene, position, velocity);
+    this.bombs.push(bomb);
+
+    return true;
+  }
+
+  public updateBombs(deltaTime: number, targets: Target[]): void {
+    this.bombs = this.bombs.filter(bomb => {
+      const stillAlive = bomb.update(deltaTime);
+      
+      if (!stillAlive) {
+        // 检查爆炸范围内的目标
+        const bombPos = bomb.getPosition();
+        const explosionRadius = bomb.getExplosionRadius();
+        const damage = bomb.getDamage();
+        
+        targets.forEach(target => {
+          if (!target.isAlive()) return;
+          
+          const distance = target.getPosition().distanceTo(bombPos);
+          if (distance <= explosionRadius) {
+            target.takeDamage(damage);
+          }
+        });
+        
+        bomb.dispose();
+        return false;
+      }
+      
+      return true;
+    });
   }
 
   private createMuzzleFlash(): void {
@@ -188,21 +262,16 @@ export class WeaponSystem {
     animateParticles();
   }
 
-  private createBulletTrail(): void {
+  private createBulletTrail(origin?: THREE.Vector3, direction?: THREE.Vector3): void {
     // Create a visual bullet trail
     const trailGeometry = new THREE.BufferGeometry();
     const trailMaterial = new THREE.LineBasicMaterial({ color: 0xffff00, opacity: 0.8, transparent: true });
-    
-    const startPoint = this.camera.position.clone();
-    const direction = new THREE.Vector3(0, 0, -1);
-    direction.applyQuaternion(this.camera.quaternion);
-    const endPoint = startPoint.clone().add(direction.multiplyScalar(1000));
-    
+    const startPoint = origin ? origin.clone() : this.camera.position.clone();
+    const dir = direction ? direction.clone() : new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
+    const endPoint = startPoint.clone().add(dir.multiplyScalar(1000));
     trailGeometry.setFromPoints([startPoint, endPoint]);
     const trail = new THREE.Line(trailGeometry, trailMaterial);
-    
     this.scene.add(trail);
-    
     // Remove trail after short duration
     setTimeout(() => {
       this.scene.remove(trail);
@@ -213,11 +282,19 @@ export class WeaponSystem {
 
   public updateCrosshair(visible: boolean): void {
     this.crosshair.style.display = visible ? 'block' : 'none';
+    this.bombSight.style.display = visible ? 'block' : 'none';
   }
 
   public dispose(): void {
     if (this.crosshair && this.crosshair.parentNode) {
       this.crosshair.parentNode.removeChild(this.crosshair);
     }
+    if (this.bombSight && this.bombSight.parentNode) {
+      this.bombSight.parentNode.removeChild(this.bombSight);
+    }
+    
+    // 清理所有炸弹
+    this.bombs.forEach(bomb => bomb.dispose());
+    this.bombs = [];
   }
 }

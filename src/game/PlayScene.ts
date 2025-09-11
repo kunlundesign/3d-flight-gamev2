@@ -171,11 +171,36 @@ export class PlayScene implements Scene {
     `;
     altitudeDisplay.textContent = 'Altitude: 0 m';
 
+    // Controls display
+    const controlsDisplay = document.createElement('div');
+    controlsDisplay.id = 'controls-display';
+    controlsDisplay.style.cssText = `
+      position: absolute;
+      bottom: 20px;
+      right: 20px;
+      font-size: 14px;
+      background: rgba(0,0,0,0.5);
+      padding: 10px;
+      border-radius: 5px;
+      max-width: 300px;
+    `;
+    controlsDisplay.innerHTML = `
+      <strong>飞行控制:</strong><br>
+      WASD/方向键: 俯仰偏航<br>
+      鼠标移动: 视角控制<br>
+      Shift/Ctrl: 油门控制<br>
+      <strong>武器:</strong><br>
+      左键: 机翼机枪射击<br>
+      空格: 投掷炸弹<br>
+      点击屏幕锁定鼠标
+    `;
+
     hudContainer.appendChild(scoreDisplay);
     hudContainer.appendChild(killsDisplay);
     hudContainer.appendChild(healthDisplay);
     hudContainer.appendChild(speedDisplay);
     hudContainer.appendChild(altitudeDisplay);
+    hudContainer.appendChild(controlsDisplay);
 
     document.body.appendChild(hudContainer);
   }
@@ -207,20 +232,56 @@ export class PlayScene implements Scene {
     // Handle shooting
     if (inputState.shoot) {
       const targets: Target[] = this.tanks.filter(tank => tank.isAlive());
-      const shootResult = this.weaponSystem.shoot(targets);
-      
-      if (shootResult.hit && shootResult.target) {
+      // 获取飞机两翼机枪发射点和方向
+      const gunPositions = this.player.getGunPositions();
+      const forward = this.player.getForwardDirection();
+      let hitAny = false;
+      for (const gunPos of gunPositions) {
+        const shootResult = this.weaponSystem.shoot(targets, gunPos, forward);
+        if (shootResult.hit && shootResult.target) {
+          hitAny = true;
+        }
+      }
+      if (hitAny) {
         // Add score
         this.score += 100;
         this.kills++;
-        
         // Remove destroyed tanks
         this.tanks = this.tanks.filter(tank => tank.isAlive());
-        
         // Spawn new tank if needed
         if (this.tanks.length < 5) {
           this.spawnTanks(1);
         }
+      }
+    }
+
+    // Handle bombing
+    if (inputState.bomb) {
+      const bombPosition = this.player.getBombPosition();
+      const playerVelocity = this.player.getForwardDirection().multiplyScalar(this.player.getSpeed());
+      playerVelocity.y = -5; // 向下初始速度
+      
+      if (this.weaponSystem.dropBomb(bombPosition, playerVelocity)) {
+        // 投弹成功的反馈可以在这里添加
+      }
+    }
+
+    // Update bombs
+    const targets: Target[] = this.tanks.filter(tank => tank.isAlive());
+    this.weaponSystem.updateBombs(deltaTime, targets);
+    
+    // Remove destroyed tanks after bomb explosions
+    const aliveCountBefore = this.tanks.filter(tank => tank.isAlive()).length;
+    this.tanks = this.tanks.filter(tank => tank.isAlive());
+    const aliveCountAfter = this.tanks.length;
+    
+    if (aliveCountBefore > aliveCountAfter) {
+      this.score += (aliveCountBefore - aliveCountAfter) * 150; // 炸弹击毁得分更高
+      this.kills += (aliveCountBefore - aliveCountAfter);
+      
+      // Spawn new tanks if needed
+      if (this.tanks.length < 5) {
+        this.spawnTanks(Math.min(3, 10 - this.tanks.length));
       }
     }
     

@@ -11,6 +11,9 @@ export class Player {
   private health: number;
   private speed: number;
   private planetRadius: number;
+  private leftGunOffset: THREE.Vector3 = new THREE.Vector3(6, -0.5, -7);
+  private rightGunOffset: THREE.Vector3 = new THREE.Vector3(6, -0.5, 7);
+  private bombBayOffset: THREE.Vector3 = new THREE.Vector3(0, -2, 0);
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
@@ -41,6 +44,20 @@ export class Player {
     wings.position.z = -2;
     wings.castShadow = true;
 
+    // 机翼机枪可视化
+    const gunGeometry = new THREE.CylinderGeometry(0.1, 0.1, 2, 8);
+    const gunMaterial = new THREE.MeshLambertMaterial({ color: 0x333333 });
+    
+    const leftGun = new THREE.Mesh(gunGeometry, gunMaterial);
+    leftGun.rotation.z = Math.PI / 2;
+    leftGun.position.set(6, -0.5, -7);
+    leftGun.castShadow = true;
+    
+    const rightGun = new THREE.Mesh(gunGeometry, gunMaterial);
+    rightGun.rotation.z = Math.PI / 2;
+    rightGun.position.set(6, -0.5, 7);
+    rightGun.castShadow = true;
+
     // Tail
     const tailGeometry = new THREE.BoxGeometry(2, 4, 0.5);
     const tailMaterial = new THREE.MeshLambertMaterial({ color: 0x4a4a4a });
@@ -59,6 +76,8 @@ export class Player {
     this.aircraft.add(wings);
     this.aircraft.add(tail);
     this.aircraft.add(propeller);
+    this.aircraft.add(leftGun);
+    this.aircraft.add(rightGun);
 
     // Set initial position
     this.aircraft.position.copy(this.position);
@@ -128,6 +147,18 @@ export class Player {
     const forward = new THREE.Vector3(1, 0, 0);
     forward.applyQuaternion(this.aircraft.quaternion);
     return forward;
+  }
+
+  public getGunPositions(): THREE.Vector3[] {
+    // 获取两翼机枪世界坐标
+    const left = this.leftGunOffset.clone().applyQuaternion(this.aircraft.quaternion).add(this.aircraft.position);
+    const right = this.rightGunOffset.clone().applyQuaternion(this.aircraft.quaternion).add(this.aircraft.position);
+    return [left, right];
+  }
+
+  public getBombPosition(): THREE.Vector3 {
+    // 获取炸弹投放点世界坐标
+    return this.bombBayOffset.clone().applyQuaternion(this.aircraft.quaternion).add(this.aircraft.position);
   }
 
   public takeDamage(amount: number): void {
