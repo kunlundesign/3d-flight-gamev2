@@ -24,6 +24,7 @@ export class WeaponSystem {
   private bombs: Bomb[] = [];
 
   constructor(scene: THREE.Scene, camera: THREE.PerspectiveCamera) {
+    console.log('🔫 WeaponSystem constructor called');
     this.scene = scene;
     this.camera = camera;
     this.fireRate = gameConfig.weapons.rate;
@@ -31,8 +32,11 @@ export class WeaponSystem {
     this.bulletSpeed = gameConfig.weapons.bulletSpeed;
     this.raycaster = new THREE.Raycaster();
     
+    console.log('🎯 Creating crosshair...');
     this.createCrosshair();
+    console.log('💣 Creating bomb sight...');
     this.createBombSight();
+    console.log('✅ WeaponSystem initialized');
   }
 
   private createCrosshair(): void {
@@ -42,16 +46,18 @@ export class WeaponSystem {
       position: fixed;
       top: 50%;
       left: 50%;
-      width: 20px;
-      height: 20px;
-      margin: -10px 0 0 -10px;
-      border: 2px solid #ff0000;
+      width: 30px;
+      height: 30px;
+      margin: -15px 0 0 -15px;
+      border: 3px solid #ff0000;
       border-radius: 50%;
       pointer-events: none;
       z-index: 1000;
-      opacity: 0.8;
+      opacity: 0.9;
+      box-shadow: 0 0 10px rgba(255,0,0,0.5);
     `;
     document.body.appendChild(this.crosshair);
+    console.log('🔴 Red crosshair created');
   }
 
   private createBombSight(): void {
@@ -59,18 +65,20 @@ export class WeaponSystem {
     this.bombSight.id = 'bombsight';
     this.bombSight.style.cssText = `
       position: fixed;
-      top: 60%;
+      top: 65%;
       left: 50%;
-      width: 30px;
-      height: 30px;
-      margin: -15px 0 0 -15px;
-      border: 2px solid #ffaa00;
+      width: 40px;
+      height: 40px;
+      margin: -20px 0 0 -20px;
+      border: 3px solid #ffaa00;
       border-radius: 50%;
       pointer-events: none;
       z-index: 1000;
-      opacity: 0.6;
+      opacity: 0.8;
+      box-shadow: 0 0 15px rgba(255,170,0,0.6);
     `;
     document.body.appendChild(this.bombSight);
+    console.log('🟠 Orange bomb sight created');
   }
 
   public shoot(targets: Target[], origin?: THREE.Vector3, direction?: THREE.Vector3): { hit: boolean; target?: Target } {
@@ -83,6 +91,7 @@ export class WeaponSystem {
     }
 
     this.lastShotTime = currentTime;
+    console.log('🔫 Shooting!');
 
     // Create muzzle flash effect
     this.createMuzzleFlash();
@@ -144,6 +153,7 @@ export class WeaponSystem {
     }
 
     this.lastBombTime = currentTime;
+    console.log('💣 Dropping bomb!');
 
     // 创建炸弹
     const bomb = new Bomb(this.scene, position, velocity);

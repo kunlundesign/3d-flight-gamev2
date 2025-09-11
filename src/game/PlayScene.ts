@@ -33,10 +33,14 @@ export class PlayScene implements Scene {
   }
 
   async init(): Promise<void> {
+    console.log('🎯 PlayScene init started...');
+    
     // Set up lighting
+    console.log('💡 Setting up lighting...');
     this.setupLighting();
     
     // Set up camera
+    console.log('📷 Setting up camera...');
     this.setupCamera();
     
     // Set scene background
@@ -44,13 +48,19 @@ export class PlayScene implements Scene {
     this.scene.fog = new THREE.Fog(0x87CEEB, 1000, 8000);
 
     // Initialize weapon system
+    console.log('🔫 Initializing weapon system...');
     this.weaponSystem = new WeaponSystem(this.scene, this.camera);
 
     // Spawn initial tanks
+    console.log('🚗 Spawning tanks...');
     this.spawnTanks(10);
 
     // Create HUD
+    console.log('📊 Creating HUD...');
     this.createHUD();
+    
+    console.log('✅ PlayScene initialized successfully!');
+    console.log('🎮 Weapons ready: Left Click = Shoot | Spacebar = Bomb');
   }
 
   private setupLighting(): void {
@@ -231,6 +241,7 @@ export class PlayScene implements Scene {
     
     // Handle shooting
     if (inputState.shoot) {
+      console.log('🎯 Shoot input detected');
       const targets: Target[] = this.tanks.filter(tank => tank.isAlive());
       // 获取飞机两翼机枪发射点和方向
       const gunPositions = this.player.getGunPositions();
@@ -243,6 +254,7 @@ export class PlayScene implements Scene {
         }
       }
       if (hitAny) {
+        console.log('🎯 Hit target!');
         // Add score
         this.score += 100;
         this.kills++;
@@ -257,12 +269,13 @@ export class PlayScene implements Scene {
 
     // Handle bombing
     if (inputState.bomb) {
+      console.log('💣 Bomb input detected');
       const bombPosition = this.player.getBombPosition();
       const playerVelocity = this.player.getForwardDirection().multiplyScalar(this.player.getSpeed());
       playerVelocity.y = -5; // 向下初始速度
       
       if (this.weaponSystem.dropBomb(bombPosition, playerVelocity)) {
-        // 投弹成功的反馈可以在这里添加
+        console.log('💣 Bomb dropped successfully!');
       }
     }
 

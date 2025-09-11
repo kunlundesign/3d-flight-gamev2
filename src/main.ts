@@ -9,6 +9,7 @@ class Game {
   private isRunning: boolean = false;
 
   constructor() {
+    console.log('🎮 Game constructor called');
     this.sceneManager = SceneManager.getInstance();
     this.clock = new THREE.Clock();
     
@@ -16,15 +17,48 @@ class Game {
   }
 
   private async init(): Promise<void> {
-    // Register scenes
-    this.sceneManager.registerScene('HOME', new HomeScene());
-    this.sceneManager.registerScene('PLAY', new PlayScene());
-    
-    // Start with home scene
-    await this.sceneManager.switchScene('HOME');
-    
-    // Start game loop
-    this.start();
+    try {
+      console.log('🚀 Initializing game...');
+      
+      // 只注册并启动 PLAY 场景
+      console.log('📦 Registering PlayScene...');
+      this.sceneManager.registerScene('PLAY', new PlayScene());
+      
+      console.log('🎯 Switching to PlayScene...');
+      await this.sceneManager.switchScene('PLAY');
+      
+      console.log('✅ Game initialized successfully!');
+      console.log('🎮 Controls: Left Click = Shoot | Spacebar = Bomb | WASD = Fly');
+      
+      this.start();
+    } catch (error) {
+      console.error('❌ Game initialization failed:', error);
+      this.showError(error as Error);
+    }
+  }
+
+  private showError(error: Error): void {
+    const errorDiv = document.createElement('div');
+    errorDiv.style.cssText = `
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(255,0,0,0.9);
+      color: white;
+      padding: 20px;
+      border-radius: 10px;
+      font-family: Arial;
+      text-align: center;
+      z-index: 9999;
+      border: 2px solid white;
+    `;
+    errorDiv.innerHTML = `
+      <h2>❌ Game Error</h2>
+      <p>${error.message}</p>
+      <p style="font-size: 12px;">Check console for details</p>
+    `;
+    document.body.appendChild(errorDiv);
   }
 
   private start(): void {

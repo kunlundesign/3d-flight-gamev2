@@ -6,11 +6,12 @@ export class Tank implements Target {
   private scene: THREE.Scene;
   private tankGroup: THREE.Group;
   private position: THREE.Vector3;
-  private health: number;
-  private maxHealth: number;
+  private health: number = 100;
+  private maxHealth: number = 100;
   private isDestroyed: boolean = false;
-  private patrolTarget: THREE.Vector3;
+  private explosionEffect?: THREE.Object3D;
   private speed: number = 10;
+  private patrolTarget: THREE.Vector3;
 
   constructor(scene: THREE.Scene, position: THREE.Vector3) {
     this.scene = scene;
@@ -105,9 +106,8 @@ export class Tank implements Target {
   }
 
   public takeDamage(amount: number): boolean {
-    if (this.isDestroyed) return false;
-
-    this.health -= amount;
+  if (this.isDestroyed) return false;
+  this.health -= amount;
     
     if (this.health <= 0) {
       this.destroy();
@@ -119,27 +119,25 @@ export class Tank implements Target {
 
   private destroy(): void {
     this.isDestroyed = true;
-    
-    // Create explosion effect (simple scale animation)
-    const originalScale = this.tankGroup.scale.clone();
-    const destroyAnimation = () => {
-      this.tankGroup.scale.multiplyScalar(1.1);
-      if (this.tankGroup.scale.x < 2) {
-        requestAnimationFrame(destroyAnimation);
-      } else {
-        // Remove from scene after animation
-        this.dispose();
-      }
-    };
-    
+    // 爆炸特效（可扩展）
+    const geometry = new THREE.SphereGeometry(2, 16, 16);
+    const material = new THREE.MeshBasicMaterial({ color: 0xffaa00 });
+    this.explosionEffect = new THREE.Mesh(geometry, material);
+    this.explosionEffect.position.copy(this.tankGroup.position);
+    this.scene.add(this.explosionEffect);
     // Change color to indicate destruction
     this.tankGroup.traverse((child) => {
       if (child instanceof THREE.Mesh && child.material instanceof THREE.MeshLambertMaterial) {
         child.material.color.setHex(0x8B0000); // Dark red
       }
     });
-    
-    destroyAnimation();
+    // 隐藏坦克
+    this.tankGroup.visible = false;
+    // 延迟移除爆炸特效和坦克
+    setTimeout(() => {
+      this.scene.remove(this.explosionEffect!);
+      this.dispose();
+    }, 800);
   }
 
   public getPosition(): THREE.Vector3 {
