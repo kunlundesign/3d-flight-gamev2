@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sky Warriors - GLB Flight Simulator</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: radial-gradient(ellipse at bottom, #1b2735 0%, #090a0f 100%);
+            font-family: 'Arial', sans-serif;
+        }
+
+        #gameContainer {
+            position: relative;
+            width: 100%;
+            height: 100vh;
+        }
+
+        #loadingScreen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            color: white;
+        }
+
+        .loading-text {
+            font-size: 2.5em;
+            margin-bottom: 30px;
+            text-shadow: 0 0 20px rgba(255, 255, 255, 0.5);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        .progress-bar {
+            width: 300px;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #00ff88, #00ccff);
+            border-radius: 3px;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        #glbUpload {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 100;
+            padding: 15px;
+            background: rgba(0, 0, 0, 0.7);
+            border-radius: 10px;
+            color: white;
+            font-size: 14px;
+        }
+
+        #fileInput {
+            margin-top: 10px;
+            padding: 8px;
+            border: 2px dashed #4CAF50;
+            border-radius: 5px;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            cursor: pointer;
+        }
+
+        #fileInput:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        #instructions {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            z-index: 100;
+            padding: 15px;
+            background: rgba(0, 0, 0, 0.7);
+            border-radius: 10px;
+            color: white;
+            font-size: 12px;
+            max-width: 300px;
+        }
+
+        #notification {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 200;
+            padding: 20px 30px;
+            background: rgba(0, 0, 0, 0.8);
+            border-radius: 10px;
+            color: white;
+            font-size: 16px;
+            display: none;
+            text-align: center;
+        }
+
+        .notification-success {
+            border-left: 4px solid #4CAF50;
+        }
+
+        .notification-error {
+            border-left: 4px solid #f44336;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <div id="loadingScreen">
+            <div class="loading-text">SKY WARRIORS</div>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
+            <p style="margin-top: 20px; opacity: 0.8;">Loading 3D Environment...</p>
+        </div>
+
+        <div id="glbUpload">
+            <h3>Load Your Aircraft</h3>
+            <p>Drop a GLB file here or click to browse:</p>
+            <input type="file" id="fileInput" accept=".glb,.gltf" />
+        </div>
+
+        <div id="instructions">
+            <h4>Flight Controls:</h4>
+            <p><strong>WASD / Arrow Keys:</strong> Fly forward/back/left/right</p>
+            <p><strong>Q / E:</strong> Roll left/right</p>
+            <p><strong>Shift:</strong> Speed boost</p>
+            <p><strong>Ctrl:</strong> Slow down</p>
+            <p><strong>Space:</strong> Climb up</p>
+            <p><strong>X:</strong> Dive down</p>
+        </div>
+
+        <div id="notification"></div>
+    </div>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.158.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.158.0/examples/jsm/"
+        }
+    }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+        class SkyWarriors {
+            constructor() {
+                this.scene = null;
+                this.camera = null;
+                this.renderer = null;
+                this.aircraft = null;
+                this.loadedModel = null;
+                
+                // Player state
+                this.playerPosition = new THREE.Vector3(0, 50, 0);
+                this.playerVelocity = new THREE.Vector3(0, 0, 0);
+                this.playerSpeed = 0;
+                
+                // Input state
+                this.inputState = {
+                    forward: false,
+                    backward: false,
+                    left: false,
+                    right: false,
+                    up: false,
+                    down: false,
+                    boost: false,
+                    slow: false,
+                    pitch: 0,
+                    yaw: 0,
+                    roll: 0
+                };
+                
+                // Terrain and environment
+                this.terrain = [];
+                this.clouds = [];
+                
+                this.init();
+            }
+
+            init() {
+                this.setupScene();
+                this.setupLighting();
+                this.createTerrain();
+                this.createClouds();
+                this.createDefaultAircraft();
+                this.setupFileUpload();
+                this.setupKeyboardControls();
+                this.hideLoadingScreen();
+                this.gameLoop();
+            }
+
+            setupScene() {
+                // Scene
+                this.scene = new THREE.Scene();
+                this.scene.fog = new THREE.Fog(0x87CEEB, 100, 2000);
+                
+                // Camera
+                this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 10000);
+                this.camera.position.set(0, 100, 200);
+                
+                // Renderer
+                this.renderer = new THREE.WebGLRenderer({ 
+                    antialias: true,
+                    alpha: true
+                });
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+                this.renderer.setClearColor(0x87CEEB, 1);
+                this.renderer.shadowMap.enabled = true;
+                this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+                
+                document.getElementById('gameContainer').appendChild(this.renderer.domElement);
+                
+                // Handle window resize
+                window.addEventListener('resize', () => {
+                    this.camera.aspect = window.innerWidth / window.innerHeight;
+                    this.camera.updateProjectionMatrix();
+                    this.renderer.setSize(window.innerWidth, window.innerHeight);
+                });
+            }
+
+            setupLighting() {
+                // Ambient light
+                const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
+                this.scene.add(ambientLight);
+                
+                // Directional light (sun)
+                const directionalLight = new THREE.DirectionalLight(0xffffff, 1.0);
+                directionalLight.position.set(100, 200, 100);
+                directionalLight.castShadow = true;
+                directionalLight.shadow.mapSize.width = 2048;
+                directionalLight.shadow.mapSize.height = 2048;
+                directionalLight.shadow.camera.near = 0.5;
+                directionalLight.shadow.camera.far = 1000;
+                directionalLight.shadow.camera.left = -500;
+                directionalLight.shadow.camera.right = 500;
+                directionalLight.shadow.camera.top = 500;
+                directionalLight.shadow.camera.bottom = -500;
+                this.scene.add(directionalLight);
+            }
+
+            createTerrain() {
+                // Ground plane
+                const groundGeometry = new THREE.PlaneGeometry(4000, 4000, 100, 100);
+                const groundMaterial = new THREE.MeshLambertMaterial({ 
+                    color: 0x4a7c59,
+                    wireframe: false
+                });
+                
+                // Add some height variation to the ground
+                const vertices = groundGeometry.attributes.position.array;
+                for (let i = 0; i < vertices.length; i += 3) {
+                    vertices[i + 2] = Math.random() * 20 - 10; // Random height
+                }
+                groundGeometry.attributes.position.needsUpdate = true;
+                groundGeometry.computeVertexNormals();
+                
+                const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+                ground.rotation.x = -Math.PI / 2;
+                ground.position.y = -50;
+                ground.receiveShadow = true;
+                this.scene.add(ground);
+                
+                // Add some mountains in the distance
+                for (let i = 0; i < 10; i++) {
+                    const mountainGeometry = new THREE.ConeGeometry(
+                        30 + Math.random() * 50, 
+                        80 + Math.random() * 100, 
+                        8
+                    );
+                    const mountainMaterial = new THREE.MeshLambertMaterial({ 
+                        color: 0x654321 
+                    });
+                    const mountain = new THREE.Mesh(mountainGeometry, mountainMaterial);
+                    
+                    mountain.position.set(
+                        (Math.random() - 0.5) * 2000,
+                        0,
+                        (Math.random() - 0.5) * 2000
+                    );
+                    mountain.castShadow = true;
+                    this.scene.add(mountain);
+                }
+            }
+
+            createClouds() {
+                for (let i = 0; i < 30; i++) {
+                    const cloudGeometry = new THREE.SphereGeometry(20 + Math.random() * 30, 8, 6);
+                    const cloudMaterial = new THREE.MeshLambertMaterial({ 
+                        color: 0xffffff,
+                        transparent: true,
+                        opacity: 0.7
+                    });
+                    const cloud = new THREE.Mesh(cloudGeometry, cloudMaterial);
+                    
+                    cloud.position.set(
+                        (Math.random() - 0.5) * 2000,
+                        100 + Math.random() * 200,
+                        (Math.random() - 0.5) * 2000
+                    );
+                    
+                    cloud.scale.set(
+                        1 + Math.random() * 0.5,
+                        0.3 + Math.random() * 0.3,
+                        1 + Math.random() * 0.5
+                    );
+                    
+                    this.clouds.push(cloud);
+                    this.scene.add(cloud);
+                }
+            }
+
+            createDefaultAircraft() {
+                // Create default aircraft from basic geometry
+                const aircraftGroup = new THREE.Group();
+                
+                // Fuselage
+                const fuselageGeometry = new THREE.CylinderGeometry(1.5, 0.5, 15, 8);
+                const fuselageMaterial = new THREE.MeshLambertMaterial({ color: 0x0066cc });
+                const fuselage = new THREE.Mesh(fuselageGeometry, fuselageMaterial);
+                fuselage.rotation.z = Math.PI / 2;
+                fuselage.castShadow = true;
+                aircraftGroup.add(fuselage);
+                
+                // Wings
+                const wingGeometry = new THREE.BoxGeometry(25, 0.5, 5);
+                const wingMaterial = new THREE.MeshLambertMaterial({ color: 0x004499 });
+                const leftWing = new THREE.Mesh(wingGeometry, wingMaterial);
+                leftWing.position.set(0, 0, -3);
+                leftWing.castShadow = true;
+                aircraftGroup.add(leftWing);
+                
+                // Tail
+                const tailGeometry = new THREE.BoxGeometry(1, 8, 0.5);
+                const tailMaterial = new THREE.MeshLambertMaterial({ color: 0x004499 });
+                const tail = new THREE.Mesh(tailGeometry, tailMaterial);
+                tail.position.set(-6, 0, 0);
+                tail.castShadow = true;
+                aircraftGroup.add(tail);
+                
+                // Propeller
+                const propGeometry = new THREE.BoxGeometry(0.2, 8, 0.2);
+                const propMaterial = new THREE.MeshLambertMaterial({ color: 0x333333 });
+                const propeller = new THREE.Mesh(propGeometry, propMaterial);
+                propeller.position.set(7, 0, 0);
+                aircraftGroup.add(propeller);
+                
+                // Scale up the aircraft significantly
+                aircraftGroup.scale.set(3, 3, 3);
+                
+                aircraftGroup.position.copy(this.playerPosition);
+                this.aircraft = aircraftGroup;
+                this.scene.add(this.aircraft);
+            }
+
+            setupFileUpload() {
+                const fileInput = document.getElementById('fileInput');
+                const uploadArea = document.getElementById('glbUpload');
+                
+                // File input change
+                fileInput.addEventListener('change', (event) => {
+                    const file = event.target.files[0];
+                    if (file) {
+                        this.loadGLBModel(file);
+                    }
+                });
+                
+                // Drag and drop
+                uploadArea.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    uploadArea.style.borderColor = '#4CAF50';
+                    uploadArea.style.backgroundColor = 'rgba(76, 175, 80, 0.1)';
+                });
+                
+                uploadArea.addEventListener('dragleave', (e) => {
+                    e.preventDefault();
+                    uploadArea.style.borderColor = '';
+                    uploadArea.style.backgroundColor = '';
+                });
+                
+                uploadArea.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    uploadArea.style.borderColor = '';
+                    uploadArea.style.backgroundColor = '';
+                    
+                    const files = e.dataTransfer.files;
+                    if (files.length > 0) {
+                        const file = files[0];
+                        if (file.name.toLowerCase().endsWith('.glb') || file.name.toLowerCase().endsWith('.gltf')) {
+                            this.loadGLBModel(file);
+                        } else {
+                            this.showNotification('Please drop a GLB or GLTF file', 'error');
+                        }
+                    }
+                });
+            }
+
+            loadGLBModel(file) {
+                this.showNotification('Loading aircraft model...', 'success');
+                
+                const loader = new GLTFLoader();
+                const url = URL.createObjectURL(file);
+                
+                loader.load(url, (gltf) => {
+                    // Remove existing aircraft if loaded model exists
+                    if (this.loadedModel) {
+                        this.scene.remove(this.loadedModel);
+                    } else if (this.aircraft) {
+                        this.scene.remove(this.aircraft);
+                    }
+                    
+                    const model = gltf.scene;
+                    
+                    // Scale the model significantly
+                    model.scale.set(10, 10, 10);
+                    
+                    // Enhance materials for better lighting
+                    model.traverse((child) => {
+                        if (child.isMesh) {
+                            child.castShadow = true;
+                            child.receiveShadow = true;
+                            
+                            if (child.material) {
+                                if (Array.isArray(child.material)) {
+                                    child.material.forEach(mat => {
+                                        this.enhanceMaterial(mat);
+                                    });
+                                } else {
+                                    this.enhanceMaterial(child.material);
+                                }
+                            }
+                        }
+                    });
+                    
+                    model.position.copy(this.playerPosition);
+                    this.loadedModel = model;
+                    this.aircraft = model;
+                    this.scene.add(model);
+                    
+                    URL.revokeObjectURL(url);
+                    this.showNotification('Aircraft loaded successfully!', 'success');
+                    
+                }, undefined, (error) => {
+                    console.error('Error loading GLB model:', error);
+                    this.showNotification('Failed to load aircraft model', 'error');
+                    URL.revokeObjectURL(url);
+                });
+            }
+
+            enhanceMaterial(material) {
+                // Ensure materials aren't too dark
+                if (material.color && material.color.r + material.color.g + material.color.b < 0.3) {
+                    material.color.multiplyScalar(2);
+                }
+                
+                // Add some metalness and roughness for better PBR lighting
+                if (material.metalness !== undefined) {
+                    material.metalness = Math.min(material.metalness + 0.3, 1);
+                }
+                if (material.roughness !== undefined) {
+                    material.roughness = Math.max(material.roughness - 0.2, 0.1);
+                }
+                
+                // Ensure material responds to lighting
+                material.needsUpdate = true;
+            }
+
+            setupKeyboardControls() {
+                const keys = new Set();
+                
+                document.addEventListener('keydown', (event) => {
+                    keys.add(event.code);
+                    this.updateInputState(keys);
+                });
+                
+                document.addEventListener('keyup', (event) => {
+                    keys.delete(event.code);
+                    this.updateInputState(keys);
+                });
+                
+                this.keys = keys;
+            }
+
+            updateInputState(keys) {
+                this.inputState.forward = keys.has('KeyW') || keys.has('ArrowUp');
+                this.inputState.backward = keys.has('KeyS') || keys.has('ArrowDown');
+                this.inputState.left = keys.has('KeyA') || keys.has('ArrowLeft');
+                this.inputState.right = keys.has('KeyD') || keys.has('ArrowRight');
+                this.inputState.up = keys.has('Space');
+                this.inputState.down = keys.has('KeyX');
+                this.inputState.boost = keys.has('ShiftLeft') || keys.has('ShiftRight');
+                this.inputState.slow = keys.has('ControlLeft') || keys.has('ControlRight');
+                
+                // Roll controls
+                if (keys.has('KeyQ')) {
+                    this.inputState.roll = Math.max(this.inputState.roll - 0.02, -0.5);
+                } else if (keys.has('KeyE')) {
+                    this.inputState.roll = Math.min(this.inputState.roll + 0.02, 0.5);
+                } else {
+                    this.inputState.roll *= 0.95; // Gradual return to level
+                }
+            }
+
+            updatePlayer(deltaTime) {
+                if (!this.aircraft) return;
+
+                // Calculate acceleration based on input
+                const baseAcceleration = 50;
+                let acceleration = baseAcceleration;
+                
+                if (this.inputState.boost) acceleration *= 2;
+                if (this.inputState.slow) acceleration *= 0.3;
+                
+                // Apply input forces
+                const inputForce = new THREE.Vector3();
+                
+                if (this.inputState.forward) inputForce.z -= acceleration;
+                if (this.inputState.backward) inputForce.z += acceleration * 0.5;
+                if (this.inputState.left) inputForce.x -= acceleration * 0.7;
+                if (this.inputState.right) inputForce.x += acceleration * 0.7;
+                if (this.inputState.up) inputForce.y += acceleration * 0.8;
+                if (this.inputState.down) inputForce.y -= acceleration * 0.8;
+                
+                // Apply forces to velocity
+                this.playerVelocity.add(inputForce.multiplyScalar(deltaTime));
+                
+                // Apply air resistance
+                this.playerVelocity.multiplyScalar(0.98);
+                
+                // Limit speed
+                const maxSpeed = this.inputState.boost ? 150 : 100;
+                if (this.playerVelocity.length() > maxSpeed) {
+                    this.playerVelocity.normalize().multiplyScalar(maxSpeed);
+                }
+                
+                // Update position
+                this.playerPosition.add(this.playerVelocity.clone().multiplyScalar(deltaTime));
+                
+                // Keep aircraft above ground
+                if (this.playerPosition.y < 10) {
+                    this.playerPosition.y = 10;
+                    this.playerVelocity.y = Math.max(this.playerVelocity.y, 0);
+                }
+                
+                // Update aircraft position and rotation
+                this.aircraft.position.copy(this.playerPosition);
+                
+                // Banking and rotation
+                const velocity = this.playerVelocity.clone();
+                if (velocity.length() > 0.1) {
+                    this.aircraft.lookAt(this.playerPosition.clone().add(velocity));
+                    this.aircraft.rotateZ(this.inputState.roll);
+                }
+            }
+
+            updateCamera() {
+                if (!this.aircraft) return;
+                
+                // Third-person camera following aircraft
+                const distance = 80;
+                const height = 30;
+                
+                const velocity = this.playerVelocity.clone().normalize();
+                const cameraOffset = velocity.clone().multiplyScalar(-distance);
+                cameraOffset.y += height;
+                
+                const targetPosition = this.playerPosition.clone().add(cameraOffset);
+                
+                // Smooth camera movement
+                this.camera.position.lerp(targetPosition, 0.1);
+                this.camera.lookAt(this.playerPosition);
+            }
+
+            updateClouds(deltaTime) {
+                // Slowly move clouds
+                this.clouds.forEach(cloud => {
+                    cloud.position.x += Math.sin(Date.now() * 0.0001) * 0.1;
+                    cloud.rotation.y += deltaTime * 0.1;
+                });
+            }
+
+            hideLoadingScreen() {
+                const loadingScreen = document.getElementById('loadingScreen');
+                const progressFill = document.getElementById('progressFill');
+                
+                // Simulate loading progress
+                let progress = 0;
+                const progressInterval = setInterval(() => {
+                    progress += Math.random() * 20;
+                    if (progress >= 100) {
+                        progress = 100;
+                        progressFill.style.width = '100%';
+                        
+                        setTimeout(() => {
+                            loadingScreen.style.opacity = '0';
+                            loadingScreen.style.transition = 'opacity 1s ease';
+                            setTimeout(() => {
+                                loadingScreen.style.display = 'none';
+                            }, 1000);
+                        }, 500);
+                        
+                        clearInterval(progressInterval);
+                    }
+                    progressFill.style.width = progress + '%';
+                }, 100);
+            }
+
+            showNotification(message, type = 'success') {
+                const notification = document.getElementById('notification');
+                notification.textContent = message;
+                notification.className = `notification-${type}`;
+                notification.style.display = 'block';
+                
+                setTimeout(() => {
+                    notification.style.display = 'none';
+                }, 3000);
+            }
+
+            gameLoop() {
+                const deltaTime = 0.016; // Approximately 60 FPS
+                
+                this.updatePlayer(deltaTime);
+                this.updateCamera();
+                this.updateClouds(deltaTime);
+                
+                this.renderer.render(this.scene, this.camera);
+                requestAnimationFrame(() => this.gameLoop());
+            }
+        }
+
+        // Start the game
+        const game = new SkyWarriors();
+    </script>
+</body>
+</html>

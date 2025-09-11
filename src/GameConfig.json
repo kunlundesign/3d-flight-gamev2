@@ -1,0 +1,55 @@
+{
+  "planet": {
+    "radius": 2000,
+    "seaLevel": 0,
+    "maxCeiling": 3200
+  },
+  "player": {
+    "maxSpeed": 180,
+    "accel": 60,
+    "drag": 0.08,
+    "hp": 100
+  },
+  "weapons": {
+    "rate": 10,
+    "bulletSpeed": 400,
+    "damage": 20,
+    "weakspotMultiplier": 2
+  },
+  "tanks": {
+    "spawnInterval": 3,
+    "maxAlive": 20,
+    "hp": 60,
+    "aaRatio": 0.2,
+    "aggroRange": 800
+  },
+  "scoring": {
+    "kill": 100,
+    "aaBonus": 100,
+    "comboWindow": 2.0,
+    "comboBonusPerKill": 0.2,
+    "comboBonusMax": 1.0
+  },
+  "limits": {
+    "maxUploadMB": 15,
+    "maxTexture": 1024,
+    "maxTextures": 6
+  },
+  "levels": [
+    {
+      "theme": "Plains",
+      "weather": "Sunny",
+      "goal": 15
+    },
+    {
+      "theme": "Mountains",
+      "weather": "Cloudy",
+      "goal": 15
+    },
+    {
+      "theme": "Rainy",
+      "weather": "Rainy",
+      "goal": 15
+    }
+  ]
+}

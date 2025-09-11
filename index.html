@@ -1,0 +1,1871 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sky Warriors - GLB Flight Simulator</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: radial-gradient(ellipse at bottom, #1b2735 0%, #090a0f 100%);
+            font-family: 'Arial', sans-serif;
+        }
+
+        #gameContainer {
+            position: relative;
+            width: 100%;
+            height: 100vh;
+        }
+
+        #loadingScreen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            color: white;
+        }
+
+        .loading-text {
+            font-size: 2.5em;
+            margin-bottom: 30px;
+            text-shadow: 0 0 20px rgba(255, 255, 255, 0.5);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        .progress-bar {
+            width: 300px;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #00ff88, #00ccff);
+            border-radius: 3px;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        #glbUpload {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 100;
+            padding: 15px;
+            background: rgba(0, 0, 0, 0.7);
+            border-radius: 10px;
+            color: white;
+            font-size: 14px;
+        }
+
+        #fileInput {
+            margin-top: 10px;
+            padding: 8px;
+            border: 2px dashed #4CAF50;
+            border-radius: 5px;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            cursor: pointer;
+        }
+
+        #fileInput:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        #instructions {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            z-index: 100;
+            padding: 15px;
+            background: rgba(0, 0, 0, 0.7);
+            border-radius: 10px;
+            color: white;
+            font-size: 12px;
+            max-width: 300px;
+        }
+
+        #notification {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 200;
+            padding: 20px 30px;
+            background: rgba(0, 0, 0, 0.8);
+            border-radius: 10px;
+            color: white;
+            font-size: 16px;
+            display: none;
+            text-align: center;
+        }
+
+        .notification-success {
+            border-left: 4px solid #4CAF50;
+        }
+
+        .notification-error {
+            border-left: 4px solid #f44336;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <div id="loadingScreen">
+            <div class="loading-text">SKY WARRIORS</div>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
+            <p style="margin-top: 20px; opacity: 0.8;">Loading 3D Environment...</p>
+        </div>
+
+        <div id="glbUpload">
+            <h3>Load Your Aircraft</h3>
+            <p>Drop a GLB file here or click to browse:</p>
+            <input type="file" id="fileInput" accept=".glb,.gltf" />
+        </div>
+
+        <div id="instructions">
+            <h4>Flight Controls:</h4>
+            <p><strong>WASD / Arrow Keys:</strong> Pitch (W/S) and Yaw (A/D) controls</p>
+            <p><strong>Q / E:</strong> Roll left/right (360° barrel rolls available!)</p>
+            <p><strong>Shift / Space:</strong> Increase throttle</p>
+            <p><strong>Ctrl / X:</strong> Decrease throttle</p>
+            <p><strong>R:</strong> Toggle weather (Rain/Sunny)</p>
+        </div>
+
+        <div id="notification"></div>
+    </div>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.158.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.158.0/examples/jsm/"
+        }
+    }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+        class SkyWarriors {
+            constructor() {
+                this.scene = null;
+                this.camera = null;
+                this.renderer = null;
+                this.aircraft = null;
+                this.loadedModel = null;
+                
+                // Player state
+                this.playerPosition = new THREE.Vector3(0, 50, 0);
+                this.playerVelocity = new THREE.Vector3(0, 0, 0);
+                this.playerSpeed = 60; // Current speed in units/sec
+                
+                // Flight control state
+                this.inputState = {
+                    pitch: 0,    // Nose up/down rotation (-π/4 to π/4)
+                    yaw: 0,      // Left/right turn rotation  
+                    roll: 0,     // Banking rotation
+                    speed: 0.6,  // Speed multiplier (0.2 to 1.0)
+                    keys: new Set() // Currently pressed keys
+                };
+
+                // World wrapping system
+                this.lastWrapMessageTime = 0;
+                
+                // === GLB动画系统 ===
+                this.modelAnimationMixer = null;      // 动画混合器
+                this.modelAnimations = [];            // 动画片段数组
+                this.activeAnimations = [];           // 当前播放的动画
+                this.animationClock = new THREE.Clock(); // 动画时钟
+                
+                // Terrain and environment
+                this.terrain = [];
+                this.clouds = [];
+                
+                this.init();
+            }
+
+            init() {
+                this.setupScene();
+                this.setupLighting();
+                this.createTerrain();
+                this.createClouds();
+                this.createDefaultAircraft();
+                this.setupFileUpload();
+                this.setupKeyboardControls();
+                this.hideLoadingScreen();
+                this.gameLoop();
+            }
+
+            setupScene() {
+                // Scene
+                this.scene = new THREE.Scene();
+                this.scene.fog = new THREE.Fog(0x87CEEB, 100, 2000);
+                
+                // Camera
+                this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 10000);
+                this.camera.position.set(0, 100, 200);
+                
+                // Renderer
+                this.renderer = new THREE.WebGLRenderer({ 
+                    antialias: true,
+                    alpha: true
+                });
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+                this.renderer.setClearColor(0x87CEEB, 1);
+                this.renderer.shadowMap.enabled = true;
+                this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+                
+                document.getElementById('gameContainer').appendChild(this.renderer.domElement);
+                
+                // Handle window resize
+                window.addEventListener('resize', () => {
+                    this.camera.aspect = window.innerWidth / window.innerHeight;
+                    this.camera.updateProjectionMatrix();
+                    this.renderer.setSize(window.innerWidth, window.innerHeight);
+                });
+            }
+
+            setupLighting() {
+                // === 自然环境光 - 模拟晴天柔和光照 ===
+                const ambientLight = new THREE.AmbientLight(0xffffff, 0.6); // 降低到0.6，自然柔和
+                this.scene.add(ambientLight);
+                
+                // === 自然太阳光 - 模拟真实晴天阳光 ===
+                const directionalLight = new THREE.DirectionalLight(0xffffff, 1.0); // 降低到1.0，自然强度
+                directionalLight.position.set(100, 300, 100); // 保持自然角度
+                directionalLight.castShadow = true;
+                
+                // 优化阴影质量
+                directionalLight.shadow.mapSize.width = 4096;
+                directionalLight.shadow.mapSize.height = 4096;
+                directionalLight.shadow.camera.near = 0.5;
+                directionalLight.shadow.camera.far = 2000;
+                directionalLight.shadow.camera.left = -1000;
+                directionalLight.shadow.camera.right = 1000;
+                directionalLight.shadow.camera.top = 1000;
+                directionalLight.shadow.camera.bottom = -1000;
+                directionalLight.shadow.bias = -0.0001;
+                this.scene.add(directionalLight);
+                
+                // === 自然天空光 - 模拟天空散射光 ===
+                const skyLight = new THREE.HemisphereLight(
+                    0x87CEEB,  // 天空蓝色
+                    0x5D8A3A,  // 地面绿色
+                    0.4        // 降低到0.4，柔和天空光
+                );
+                skyLight.position.set(0, 500, 0);
+                this.scene.add(skyLight);
+                
+                // === 移除过强的飞机专用聚光灯 ===
+                // 不再添加专用聚光灯，使用自然光照
+                
+                // === 轻微补光系统 - 仅用于消除过暗阴影 ===
+                const fillLights = [
+                    { pos: [200, 100, 0], intensity: 0.2 },    // 右侧轻微补光
+                    { pos: [-200, 100, 0], intensity: 0.2 },   // 左侧轻微补光
+                    { pos: [0, 100, 200], intensity: 0.15 },   // 前方轻微补光
+                    { pos: [0, 100, -200], intensity: 0.15 }   // 后方轻微补光
+                ];
+                
+                fillLights.forEach(light => {
+                    const fillLight = new THREE.DirectionalLight(0xffffff, light.intensity);
+                    fillLight.position.set(light.pos[0], light.pos[1], light.pos[2]);
+                    fillLight.castShadow = false; // 补光不产生阴影
+                    this.scene.add(fillLight);
+                });
+                
+                // === 移除GLB专用增强光 ===
+                // 不再添加专用增强光，使用自然光照
+            }
+
+            createTerrain() {
+                // Ground plane - 更绿更真实的草地颜色
+                const groundGeometry = new THREE.PlaneGeometry(8000, 8000, 150, 150);
+                const groundMaterial = new THREE.MeshLambertMaterial({ 
+                    color: 0x5D8A3A, // 更鲜艳的草绿色，符合自然环境
+                    wireframe: false
+                });
+                
+                // Add some height variation to the ground
+                const vertices = groundGeometry.attributes.position.array;
+                for (let i = 0; i < vertices.length; i += 3) {
+                    vertices[i + 2] = Math.random() * 15 - 7; // 减少地面起伏，更平坦
+                }
+                groundGeometry.attributes.position.needsUpdate = true;
+                groundGeometry.computeVertexNormals();
+                
+                const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+                ground.rotation.x = -Math.PI / 2;
+                ground.position.y = -50;
+                ground.receiveShadow = true;
+                this.scene.add(ground);
+                
+                // 创建多样化美丽的山脉系统
+                this.createMountainRanges();
+
+                // 创建自然环境元素
+                this.createTrees();
+                this.createRivers();
+                this.createRoads();
+            }
+
+            createMountainRanges() {
+                // 1. 雄伟的高山脉
+                this.createMountainRange(-3000, -2000, 8, 'high', 0x8b7355);
+                this.createMountainRange(2500, 2200, 6, 'high', 0x696969);
+                
+                // 2. 中等山丘
+                this.createMountainRange(-1500, 2800, 5, 'medium', 0xA0522D);
+                this.createMountainRange(3200, -1200, 7, 'medium', 0x8b7355);
+                
+                // 3. 低矮丘陵
+                this.createMountainRange(0, 3500, 4, 'low', 0x9ACD32);
+                this.createMountainRange(-2800, 1000, 5, 'low', 0x228B22);
+                
+                // 4. 独立山峰
+                for (let i = 0; i < 15; i++) {
+                    const x = (Math.random() - 0.5) * 7000;
+                    const z = (Math.random() - 0.5) * 7000;
+                    this.createSingleMountain(x, z, 'random');
+                }
+            }
+
+            createMountainRange(centerX, centerZ, count, type, color) {
+                for (let i = 0; i < count; i++) {
+                    const angle = (i / count) * Math.PI * 2;
+                    const radius = 200 + Math.random() * 300;
+                    const x = centerX + Math.cos(angle) * radius;
+                    const z = centerZ + Math.sin(angle) * radius;
+                    this.createSingleMountain(x, z, type, color);
+                }
+            }
+
+            createSingleMountain(x, z, type, color) {
+                let height, baseRadius, shape, mountainColor;
+                
+                // 根据类型设置参数
+                switch(type) {
+                    case 'high':
+                        height = 120 + Math.random() * 80;
+                        baseRadius = 40 + Math.random() * 30;
+                        shape = 'cone';
+                        mountainColor = color || 0x8b7355;
+                        break;
+                    case 'medium':
+                        height = 70 + Math.random() * 50;
+                        baseRadius = 35 + Math.random() * 25;
+                        shape = Math.random() > 0.5 ? 'cone' : 'pyramid';
+                        mountainColor = color || 0xA0522D;
+                        break;
+                    case 'low':
+                        height = 30 + Math.random() * 40;
+                        baseRadius = 30 + Math.random() * 20;
+                        shape = 'dome';
+                        mountainColor = color || 0x9ACD32;
+                        break;
+                    default: // random
+                        const types = ['high', 'medium', 'low'];
+                        const randomType = types[Math.floor(Math.random() * types.length)];
+                        return this.createSingleMountain(x, z, randomType);
+                }
+                
+                let mountainGeometry;
+                
+                // 根据形状创建几何体
+                switch(shape) {
+                    case 'cone':
+                        mountainGeometry = new THREE.ConeGeometry(baseRadius, height, 8 + Math.floor(Math.random() * 4));
+                        break;
+                    case 'pyramid':
+                        mountainGeometry = new THREE.ConeGeometry(baseRadius, height, 4);
+                        break;
+                    case 'dome':
+                        mountainGeometry = new THREE.SphereGeometry(baseRadius, 8, 4, 0, Math.PI * 2, 0, Math.PI / 2);
+                        mountainGeometry.scale(1, height / baseRadius, 1);
+                        break;
+                }
+                
+                // 添加地形变化
+                const vertices = mountainGeometry.attributes.position.array;
+                for (let i = 0; i < vertices.length; i += 3) {
+                    // 随机高度变化，模拟岩石纹理
+                    const variation = (Math.random() - 0.5) * 8;
+                    vertices[i] += variation * 0.3; // X方向
+                    vertices[i + 1] += variation * 0.2; // Y方向  
+                    vertices[i + 2] += variation * 0.3; // Z方向
+                }
+                mountainGeometry.attributes.position.needsUpdate = true;
+                mountainGeometry.computeVertexNormals();
+                
+                const mountainMaterial = new THREE.MeshLambertMaterial({ 
+                    color: mountainColor
+                });
+                
+                const mountain = new THREE.Mesh(mountainGeometry, mountainMaterial);
+                mountain.position.set(x, height / 2 - 50, z);
+                mountain.rotation.y = Math.random() * Math.PI * 2; // 随机旋转
+                mountain.castShadow = true;
+                mountain.receiveShadow = true;
+                
+                this.scene.add(mountain);
+            }
+
+            // === createTerrain 函数结束 ===
+
+            createClouds() {
+                // 增加云朵数量并扩大分布范围到新的8000x8000地形
+                for (let i = 0; i < 60; i++) { // Increased from 30 to 60
+                    const cloudGeometry = new THREE.SphereGeometry(20 + Math.random() * 30, 8, 6);
+                    const cloudMaterial = new THREE.MeshLambertMaterial({ 
+                        color: 0xffffff,
+                        transparent: true,
+                        opacity: 0.7
+                    });
+                    const cloud = new THREE.Mesh(cloudGeometry, cloudMaterial);
+                    
+                    cloud.position.set(
+                        (Math.random() - 0.5) * 6000,  // 从 2000 扩大到 6000
+                        100 + Math.random() * 200,
+                        (Math.random() - 0.5) * 6000   // 从 2000 扩大到 6000
+                    );
+                    
+                    cloud.scale.set(
+                        1 + Math.random() * 0.5,
+                        0.3 + Math.random() * 0.3,
+                        1 + Math.random() * 0.5
+                    );
+                    
+                    this.clouds.push(cloud);
+                    this.scene.add(cloud);
+                }
+            }
+
+            createDefaultAircraft() {
+                // Create enhanced P-51 Mustang style fighter aircraft with premium materials
+                const planeGroup = new THREE.Group();
+                
+                // === PREMIUM MATERIALS ===
+                const fuselageMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0xd0d0d0, // Bright silver
+                    metalness: 0.8,
+                    roughness: 0.2,
+                    envMapIntensity: 1.0
+                });
+                
+                const wingMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0x2d5016, // Dark green wings
+                    metalness: 0.1,
+                    roughness: 0.6
+                });
+                
+                const glassMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0x87ceeb,
+                    transparent: true,
+                    opacity: 0.25,
+                    metalness: 0.0,
+                    roughness: 0.0,
+                    transmission: 0.9,
+                    ior: 1.5
+                });
+                
+                const darkMetalMaterial = new THREE.MeshStandardMaterial({
+                    color: 0x404040,
+                    metalness: 0.9,
+                    roughness: 0.3
+                });
+                
+                // === ENHANCED FUSELAGE (机身) ===
+                const fuselageGeometry = new THREE.CylinderGeometry(1.4, 0.7, 16, 16);
+                const fuselage = new THREE.Mesh(fuselageGeometry, fuselageMaterial);
+                fuselage.rotation.x = Math.PI / 2;
+                fuselage.position.set(0, 0, 0);
+                fuselage.castShadow = true;
+                fuselage.receiveShadow = true;
+                planeGroup.add(fuselage);
+                
+                // === DETAILED NOSE CONE (机鼻) ===
+                const noseGeometry = new THREE.ConeGeometry(1.4, 4, 16);
+                const nose = new THREE.Mesh(noseGeometry, fuselageMaterial);
+                nose.position.set(0, 0, 10);
+                nose.rotation.x = Math.PI / 2;
+                nose.castShadow = true;
+                nose.receiveShadow = true;
+                planeGroup.add(nose);
+                
+                // === ENGINE COWLING (发动机整流罩) ===
+                const cowlingGeometry = new THREE.CylinderGeometry(1.6, 1.4, 3, 12);
+                const cowling = new THREE.Mesh(cowlingGeometry, darkMetalMaterial);
+                cowling.rotation.x = Math.PI / 2;
+                cowling.position.set(0, 0, 6.5);
+                cowling.castShadow = true;
+                planeGroup.add(cowling);
+                
+                // === REALISTIC WINGS (真实机翼) ===
+                // Wing root section
+                const wingRootGeometry = new THREE.BoxGeometry(4, 0.8, 4);
+                const wingRoot = new THREE.Mesh(wingRootGeometry, wingMaterial);
+                wingRoot.position.set(0, -0.2, -1);
+                wingRoot.castShadow = true;
+                planeGroup.add(wingRoot);
+                
+                // Tapered wing sections for realistic shape
+                for (let side = -1; side <= 1; side += 2) {
+                    for (let section = 1; section <= 6; section++) {
+                        const width = 4 - (section * 0.4);
+                        const thickness = 0.8 - (section * 0.08);
+                        const wingGeometry = new THREE.BoxGeometry(width, thickness, 3);
+                        const wingSection = new THREE.Mesh(wingGeometry, wingMaterial);
+                        wingSection.position.set(side * section * 1.8, -0.2 - (section * 0.02), -1);
+                        wingSection.castShadow = true;
+                        planeGroup.add(wingSection);
+                    }
+                }
+                
+                // === CLEAN WING TIPS (简洁翼尖) ===
+                // 移除奇怪的半球形翼尖，改为简洁的椭圆翼尖
+                const wingTipGeometry = new THREE.BoxGeometry(1, 0.4, 2);
+                for (let side = -1; side <= 1; side += 2) {
+                    const wingTip = new THREE.Mesh(wingTipGeometry, wingMaterial);
+                    wingTip.position.set(side * 10.8, -0.3, -1);
+                    wingTip.castShadow = true;
+                    planeGroup.add(wingTip);
+                }
+                
+                // === TAIL SECTION (尾翼) ===
+                const tailGeometry = new THREE.CylinderGeometry(0.6, 0.4, 4, 8);
+                const tail = new THREE.Mesh(tailGeometry, fuselageMaterial);
+                tail.rotation.x = Math.PI / 2;
+                tail.position.set(0, 0, -8);
+                tail.castShadow = true;
+                planeGroup.add(tail);
+                
+                // === HORIZONTAL STABILIZER (水平尾翼) ===
+                const hStabGeometry = new THREE.BoxGeometry(8, 1, 2);
+                const hStab = new THREE.Mesh(hStabGeometry, wingMaterial);
+                hStab.position.set(0, 0, -10);
+                hStab.castShadow = true;
+                planeGroup.add(hStab);
+                
+                // === VERTICAL STABILIZER (垂直尾翼) ===
+                const vStabGeometry = new THREE.BoxGeometry(1, 4, 3);
+                const vStab = new THREE.Mesh(vStabGeometry, wingMaterial);
+                vStab.position.set(0, 2, -10);
+                vStab.castShadow = true;
+                planeGroup.add(vStab);
+                
+                // === ENHANCED PROPELLER ASSEMBLY ===
+                // Propeller spinner
+                const spinnerGeometry = new THREE.ConeGeometry(0.8, 1.5, 12);
+                const spinnerMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0x2c2c2c, 
+                    metalness: 0.8, 
+                    roughness: 0.2 
+                });
+                const spinner = new THREE.Mesh(spinnerGeometry, spinnerMaterial);
+                spinner.position.set(0, 0, 12.5);
+                spinner.rotation.x = Math.PI / 2;
+                spinner.castShadow = true;
+                planeGroup.add(spinner);
+                
+                // Propeller hub
+                const hubGeometry = new THREE.CylinderGeometry(0.6, 0.6, 0.6, 12);
+                const hub = new THREE.Mesh(hubGeometry, darkMetalMaterial);
+                hub.position.set(0, 0, 11.5);
+                hub.rotation.x = Math.PI / 2;
+                hub.castShadow = true;
+                planeGroup.add(hub);
+                
+                // Enhanced propeller blades
+                const propGroup = new THREE.Group();
+                const bladeMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0x2a1810, // Dark wood brown
+                    metalness: 0.1,
+                    roughness: 0.9
+                });
+                
+                for (let i = 0; i < 3; i++) {
+                    // Realistic blade shape with taper
+                    const bladeGeometry = new THREE.BoxGeometry(0.3, 8, 0.15);
+                    const blade = new THREE.Mesh(bladeGeometry, bladeMaterial);
+                    blade.rotation.z = (i * 2 * Math.PI) / 3;
+                    blade.castShadow = true;
+                    propGroup.add(blade);
+                    
+                    // Blade tips
+                    const tipGeometry = new THREE.SphereGeometry(0.2, 8, 4);
+                    const tip = new THREE.Mesh(tipGeometry, bladeMaterial);
+                    tip.position.set(0, 4, 0);
+                    tip.rotation.z = (i * 2 * Math.PI) / 3;
+                    blade.add(tip);
+                }
+                
+                propGroup.position.set(0, 0, 11.8);
+                planeGroup.add(propGroup);
+                this.propeller = propGroup;
+                
+                // === DETAILED LANDING GEAR (起落架) ===
+                const gearMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0x404040,
+                    metalness: 0.8,
+                    roughness: 0.3
+                });
+                
+                // Main gear struts with hydraulics
+                for (let side = -1; side <= 1; side += 2) {
+                    const strutGeometry = new THREE.CylinderGeometry(0.08, 0.12, 3.5, 8);
+                    const strut = new THREE.Mesh(strutGeometry, gearMaterial);
+                    strut.position.set(side * 2, -2.2, 0);
+                    strut.castShadow = true;
+                    planeGroup.add(strut);
+                    
+                    // Wheels with detailed rims
+                    const wheelGeometry = new THREE.CylinderGeometry(0.9, 0.9, 0.4, 16);
+                    const wheelMaterial = new THREE.MeshStandardMaterial({ 
+                        color: 0x1a1a1a,
+                        roughness: 0.9
+                    });
+                    const wheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                    wheel.position.set(side * 2, -3.8, 0);
+                    wheel.rotation.z = Math.PI / 2;
+                    wheel.castShadow = true;
+                    planeGroup.add(wheel);
+                    
+                    // Wheel rims
+                    const rimGeometry = new THREE.CylinderGeometry(0.7, 0.7, 0.45, 16);
+                    const rim = new THREE.Mesh(rimGeometry, gearMaterial);
+                    rim.position.set(side * 2, -3.8, 0);
+                    rim.rotation.z = Math.PI / 2;
+                    rim.castShadow = true;
+                    planeGroup.add(rim);
+                }
+                
+                // Tail wheel
+                const tailWheelGeometry = new THREE.CylinderGeometry(0.3, 0.3, 0.2, 12);
+                const tailWheel = new THREE.Mesh(tailWheelGeometry, new THREE.MeshStandardMaterial({ 
+                    color: 0x1a1a1a, 
+                    roughness: 0.9 
+                }));
+                tailWheel.position.set(0, -1.5, -9);
+                tailWheel.rotation.x = Math.PI / 2;
+                tailWheel.castShadow = true;
+                planeGroup.add(tailWheel);
+                
+                // === REALISTIC ELLIPTICAL COCKPIT CANOPY (椭圆形驾驶舱座舱盖) ===
+                // 创建椭圆形座舱盖，与机身完美贴合
+                const canopyGeometry = new THREE.SphereGeometry(1, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2);
+                // 将球体压扁成椭圆形，符合真实战斗机设计
+                canopyGeometry.scale(2.4, 0.6, 1.8); // 前后拉长（Z轴），上下压扁（Y轴），左右适中（X轴）
+                
+                const canopy = new THREE.Mesh(canopyGeometry, glassMaterial);
+                canopy.position.set(0, 0.9, 0.5); // 降低高度，更好贴合机身
+                canopy.rotation.z = Math.PI / 2; // 沿Z轴旋转90度
+                canopy.castShadow = true;
+                canopy.receiveShadow = true;
+                planeGroup.add(canopy);
+                
+                // === CANOPY FRAME (座舱盖框架) ===
+                // 添加座舱盖的金属框架，增加真实感
+                const frameGeometry = new THREE.TorusGeometry(1.4, 0.06, 4, 12);
+                frameGeometry.scale(1.7, 0.8, 1.3); // 匹配座舱盖的椭圆形状：前后拉长，左右适中
+                const frameMaterial = new THREE.MeshStandardMaterial({
+                    color: 0x404040,
+                    metalness: 0.8,
+                    roughness: 0.3
+                });
+                const frame = new THREE.Mesh(frameGeometry, frameMaterial);
+                frame.position.set(0, 0.9, 0.5);
+                frame.rotation.x = Math.PI / 2;
+                frame.rotation.z = Math.PI / 2; // 沿Z轴旋转90度，与座舱盖保持一致
+                frame.castShadow = true;
+                planeGroup.add(frame);
+                
+                // === COCKPIT INTERIOR (驾驶舱内部) - 调整位置 ===
+                const seatGeometry = new THREE.BoxGeometry(0.8, 0.4, 1.2);
+                const seatMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0x4a4a4a, 
+                    roughness: 0.8 
+                });
+                const seat = new THREE.Mesh(seatGeometry, seatMaterial);
+                seat.position.set(0, 0.1, 0.5); // 稍微降低座椅位置
+                seat.castShadow = true;
+                planeGroup.add(seat);
+                
+                // Control stick (操纵杆)
+                const stickGeometry = new THREE.CylinderGeometry(0.05, 0.05, 0.6, 8);
+                const stick = new THREE.Mesh(stickGeometry, darkMetalMaterial);
+                stick.position.set(0, 0.4, 1.0); // 调整操纵杆位置
+                stick.castShadow = true;
+                planeGroup.add(stick);
+                
+                // Instrument panel (仪表板)
+                const panelGeometry = new THREE.BoxGeometry(1.4, 0.6, 0.08);
+                const panelMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0x2a2a2a, 
+                    roughness: 0.6,
+                    metalness: 0.3
+                });
+                const panel = new THREE.Mesh(panelGeometry, panelMaterial);
+                panel.position.set(0, 0.5, 2.0); // 调整仪表板位置
+                panel.rotation.x = -Math.PI / 6; // 向后倾斜15度
+                panel.castShadow = true;
+                planeGroup.add(panel);
+                
+                // === NAVIGATION LIGHTS (导航灯) ===
+                // Wing tip lights with proper aviation colors
+                for (let side = -1; side <= 1; side += 2) {
+                    const lightGeometry = new THREE.SphereGeometry(0.12, 8, 6);
+                    const lightMaterial = new THREE.MeshStandardMaterial({ 
+                        color: side > 0 ? 0x00ff00 : 0xff0000, // Green right, red left
+                        emissive: side > 0 ? 0x004400 : 0x440000,
+                        emissiveIntensity: 0.5,
+                        metalness: 0.1,
+                        roughness: 0.2
+                    });
+                    const light = new THREE.Mesh(lightGeometry, lightMaterial);
+                    light.position.set(side * 11, 0, -1);
+                    planeGroup.add(light);
+                }
+                
+                // Tail navigation light
+                const tailLightGeometry = new THREE.SphereGeometry(0.08, 8, 6);
+                const tailLightMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0xffffff,
+                    emissive: 0x222222,
+                    emissiveIntensity: 0.3,
+                    metalness: 0.1,
+                    roughness: 0.2
+                });
+                const tailLight = new THREE.Mesh(tailLightGeometry, tailLightMaterial);
+                tailLight.position.set(0, 1, -12);
+                planeGroup.add(tailLight);
+                
+                // === ENHANCED ENGINE EXHAUST STACKS (排气管) ===
+                for (let i = 0; i < 6; i++) {
+                    const exhaustGeometry = new THREE.CylinderGeometry(0.12, 0.18, 1.2, 8);
+                    const exhaustMaterial = new THREE.MeshStandardMaterial({ 
+                        color: 0x2a2a2a,
+                        metalness: 0.6,
+                        roughness: 0.7,
+                        emissive: 0x221100,
+                        emissiveIntensity: 0.1
+                    });
+                    const exhaust = new THREE.Mesh(exhaustGeometry, exhaustMaterial);
+                    const angle = (i / 6) * Math.PI * 2;
+                    const radius = 1.2;
+                    exhaust.position.set(
+                        Math.cos(angle) * radius, 
+                        Math.sin(angle) * radius, 
+                        5
+                    );
+                    exhaust.rotation.x = Math.PI / 2;
+                    exhaust.castShadow = true;
+                    planeGroup.add(exhaust);
+                }
+                
+                // === FINAL ASSEMBLY ===
+                planeGroup.position.copy(this.playerPosition);
+                planeGroup.scale.set(1.2, 1.2, 1.2); // Slightly larger for better presence
+                
+                // Store references
+                this.aircraft = planeGroup;
+                this.scene.add(this.aircraft);
+            }
+
+            // === 环境系统函数 ===
+            
+            createTrees() {
+                // 创建真实的森林分布 - 疏密有致
+                
+                // 1. 密集森林区域（模拟原始森林）
+                this.createDenseForest(-2500, -2000, 800, 600, 'pine', 80);     // 密集松树林
+                this.createDenseForest(1800, 1500, 700, 500, 'oak', 70);        // 密集橡树林
+                
+                // 2. 中等密度森林
+                this.createMediumForest(-1000, 2200, 900, 700, 'mixed', 45);    // 混合林
+                this.createMediumForest(2200, -800, 600, 800, 'birch', 40);     // 桦树林
+                
+                // 3. 稀疏森林/树丛
+                this.createSparseForest(-3000, 0, 1200, 800, 'oak', 25);        // 稀疏橡树
+                this.createSparseForest(0, -2800, 1000, 600, 'pine', 20);       // 稀疏松树
+                this.createSparseForest(1000, 3000, 800, 600, 'palm', 15);      // 稀疏棕榈
+                
+                // 4. 河流沿岸植被（柳树效果）
+                this.createRiverSideVegetation();
+                
+                // 5. 散布的孤立树木（真实感）
+                for (let i = 0; i < 100; i++) {
+                    const x = (Math.random() - 0.5) * 7000;
+                    const z = (Math.random() - 0.5) * 7000;
+                    const treeType = ['pine', 'oak', 'birch', 'palm'][Math.floor(Math.random() * 4)];
+                    this.createTree(x, z, treeType);
+                }
+            }
+
+            // 密集森林 - 树木紧密排列
+            createDenseForest(centerX, centerZ, width, depth, forestType, treeCount) {
+                for (let i = 0; i < treeCount; i++) {
+                    // 使用聚集分布，模拟真实森林
+                    const clusterX = centerX + (Math.random() - 0.5) * width * 0.8;
+                    const clusterZ = centerZ + (Math.random() - 0.5) * depth * 0.8;
+                    
+                    // 在聚集点周围随机分布
+                    const offsetX = (Math.random() - 0.5) * 50;
+                    const offsetZ = (Math.random() - 0.5) * 50;
+                    
+                    this.createTree(clusterX + offsetX, clusterZ + offsetZ, forestType);
+                }
+            }
+
+            // 中等密度森林
+            createMediumForest(centerX, centerZ, width, depth, forestType, treeCount) {
+                for (let i = 0; i < treeCount; i++) {
+                    const x = centerX + (Math.random() - 0.5) * width;
+                    const z = centerZ + (Math.random() - 0.5) * depth;
+                    
+                    // 随机跳过一些位置，创造空隙
+                    if (Math.random() > 0.3) {
+                        this.createTree(x, z, forestType);
+                    }
+                }
+            }
+
+            // 稀疏森林
+            createSparseForest(centerX, centerZ, width, depth, forestType, treeCount) {
+                for (let i = 0; i < treeCount; i++) {
+                    const x = centerX + (Math.random() - 0.5) * width;
+                    const z = centerZ + (Math.random() - 0.5) * depth;
+                    
+                    // 稀疏分布，更多空旷区域
+                    if (Math.random() > 0.6) {
+                        this.createTree(x, z, forestType);
+                    }
+                }
+            }
+
+            // 河流沿岸植被
+            createRiverSideVegetation() {
+                // 沿主河流分布柳树状植被
+                const riverPoints = [
+                    [-2000, -1000], [-1000, -500], [0, 0], [1000, 500], [2000, 1000]
+                ];
+                
+                riverPoints.forEach((point, index) => {
+                    if (index < riverPoints.length - 1) {
+                        const [x1, z1] = point;
+                        const [x2, z2] = riverPoints[index + 1];
+                        
+                        // 沿河流两岸种植
+                        for (let i = 0; i < 20; i++) {
+                            const t = i / 19;
+                            const riverX = x1 + (x2 - x1) * t;
+                            const riverZ = z1 + (z2 - z1) * t;
+                            
+                            // 河流两侧
+                            const offset = 80 + Math.random() * 40;
+                            this.createTree(riverX + offset, riverZ, 'birch'); // 右岸
+                            this.createTree(riverX - offset, riverZ, 'birch'); // 左岸
+                        }
+                    }
+                });
+            }
+
+            createRivers() {
+                // 创建更明显美丽的河流系统
+                this.createRiver(-2000, -1000, 2000, 1000, 60, 0x4169E1); // 更宽更蓝的主河
+                this.createRiver(-1000, -2000, 1000, 2000, 40, 0x6495ED); // 天蓝色支流1
+                this.createRiver(0, -1500, 0, 1500, 45, 0x4682B4);        // 钢蓝色支流2
+                
+                // 添加一些美丽的小溪
+                for (let i = 0; i < 5; i++) {
+                    const x1 = (Math.random() - 0.5) * 4000;
+                    const z1 = (Math.random() - 0.5) * 4000;
+                    const x2 = x1 + (Math.random() - 0.5) * 1000;
+                    const z2 = z1 + (Math.random() - 0.5) * 1000;
+                    this.createRiver(x1, z1, x2, z2, 20, 0x87CEEB); // 天蓝色小溪
+                }
+            }
+
+            createRiver(x1, z1, x2, z2, width, color) {
+                const length = Math.sqrt((x2 - x1) ** 2 + (z2 - z1) ** 2);
+                const riverGeometry = new THREE.PlaneGeometry(width, length, 20, 50);
+                
+                // 添加轻微的波浪效果
+                const vertices = riverGeometry.attributes.position.array;
+                for (let i = 0; i < vertices.length; i += 3) {
+                    vertices[i + 2] += Math.sin(vertices[i] * 0.05) * 1; // 轻微波浪
+                }
+                riverGeometry.attributes.position.needsUpdate = true;
+                
+                const riverMaterial = new THREE.MeshLambertMaterial({ 
+                    color: color,
+                    transparent: true,
+                    opacity: 0.85,
+                    side: THREE.DoubleSide
+                });
+                
+                const river = new THREE.Mesh(riverGeometry, riverMaterial);
+                river.rotation.x = -Math.PI / 2;
+                river.position.set(
+                    (x1 + x2) / 2,
+                    -45, // 提高高度，更明显
+                    (z1 + z2) / 2
+                );
+                
+                // 计算河流角度
+                const angle = Math.atan2(z2 - z1, x2 - x1);
+                river.rotation.y = angle - Math.PI / 2;
+                
+                river.receiveShadow = true;
+                this.scene.add(river);
+            }
+
+            createTree(x, z, treeType = 'oak') {
+                const treeGroup = new THREE.Group();
+                
+                let trunkHeight, trunkRadius;
+                
+                switch(treeType) {
+                    case 'pine': // 优美的松树
+                        trunkHeight = 15 + Math.random() * 10;
+                        trunkRadius = 0.6 + Math.random() * 0.3;
+                        
+                        // 松树树干 - 自然棕色
+                        const pineTrunkGeometry = new THREE.CylinderGeometry(
+                            trunkRadius * 0.7, trunkRadius * 1.2, trunkHeight, 8
+                        );
+                        const pineTrunkMaterial = new THREE.MeshLambertMaterial({ 
+                            color: 0x8B4513 // 温暖的棕色
+                        });
+                        const pineTrunk = new THREE.Mesh(pineTrunkGeometry, pineTrunkMaterial);
+                        pineTrunk.position.y = trunkHeight / 2 - 50;
+                        pineTrunk.castShadow = true;
+                        treeGroup.add(pineTrunk);
+                        
+                        // 松树层状树冠 - 深绿到浅绿渐变
+                        const greenShades = [0x0F4F0F, 0x228B22, 0x32CD32, 0x90EE90];
+                        for (let layer = 0; layer < 5; layer++) {
+                            const layerRadius = 5 - layer * 0.7;
+                            const layerHeight = 3.5 + Math.random() * 0.5;
+                            const crownGeometry = new THREE.ConeGeometry(layerRadius, layerHeight, 8);
+                            const crownMaterial = new THREE.MeshLambertMaterial({ 
+                                color: greenShades[Math.min(layer, 3)]
+                            });
+                            const crownLayer = new THREE.Mesh(crownGeometry, crownMaterial);
+                            crownLayer.position.y = trunkHeight - 50 + layer * 2.8;
+                            crownLayer.castShadow = true;
+                            treeGroup.add(crownLayer);
+                        }
+                        break;
+                        
+                    case 'oak': // 雄伟的橡树
+                        trunkHeight = 10 + Math.random() * 8;
+                        trunkRadius = 1.2 + Math.random() * 0.6;
+                        
+                        // 橡树粗壮树干 - 深棕色
+                        const oakTrunkGeometry = new THREE.CylinderGeometry(
+                            trunkRadius * 0.8, trunkRadius * 1.4, trunkHeight, 8
+                        );
+                        const oakTrunkMaterial = new THREE.MeshLambertMaterial({ 
+                            color: 0x654321 // 深棕色
+                        });
+                        const oakTrunk = new THREE.Mesh(oakTrunkGeometry, oakTrunkMaterial);
+                        oakTrunk.position.y = trunkHeight / 2 - 50;
+                        oakTrunk.castShadow = true;
+                        treeGroup.add(oakTrunk);
+                        
+                        // 橡树茂密树冠 - 多层结构
+                        const mainCrownGeometry = new THREE.SphereGeometry(6 + Math.random() * 2, 10, 8);
+                        mainCrownGeometry.scale(1.4, 0.9, 1.4); // 压扁的宽阔树冠
+                        const mainCrownMaterial = new THREE.MeshLambertMaterial({ 
+                            color: 0x228B22 // 森林绿
+                        });
+                        const mainCrown = new THREE.Mesh(mainCrownGeometry, mainCrownMaterial);
+                        mainCrown.position.y = trunkHeight - 50 + 4;
+                        mainCrown.castShadow = true;
+                        treeGroup.add(mainCrown);
+                        
+                        // 额外的小树冠增加层次感
+                        for (let i = 0; i < 3; i++) {
+                            const smallCrownGeometry = new THREE.SphereGeometry(2 + Math.random(), 8, 6);
+                            const smallCrownMaterial = new THREE.MeshLambertMaterial({ 
+                                color: 0x32CD32 // 较亮的绿色
+                            });
+                            const smallCrown = new THREE.Mesh(smallCrownGeometry, smallCrownMaterial);
+                            smallCrown.position.set(
+                                (Math.random() - 0.5) * 8,
+                                trunkHeight - 50 + 3 + Math.random() * 3,
+                                (Math.random() - 0.5) * 8
+                            );
+                            smallCrown.castShadow = true;
+                            treeGroup.add(smallCrown);
+                        }
+                        break;
+                        
+                    case 'birch': // 优雅的桦树
+                        trunkHeight = 12 + Math.random() * 6;
+                        trunkRadius = 0.4 + Math.random() * 0.2;
+                        
+                        // 桦树细长白色树干
+                        const birchTrunkGeometry = new THREE.CylinderGeometry(
+                            trunkRadius * 0.9, trunkRadius * 1.1, trunkHeight, 8
+                        );
+                        const birchTrunkMaterial = new THREE.MeshLambertMaterial({ 
+                            color: 0xF5F5DC // 优雅的米色白
+                        });
+                        const birchTrunk = new THREE.Mesh(birchTrunkGeometry, birchTrunkMaterial);
+                        birchTrunk.position.y = trunkHeight / 2 - 50;
+                        birchTrunk.castShadow = true;
+                        treeGroup.add(birchTrunk);
+                        
+                        // 桦树垂柳状树冠
+                        const birchCrownGeometry = new THREE.SphereGeometry(4 + Math.random() * 1.5, 8, 6);
+                        birchCrownGeometry.scale(1.2, 1.4, 1.2); // 稍微拉长
+                        const birchCrownMaterial = new THREE.MeshLambertMaterial({ 
+                            color: 0x9ACD32 // 黄绿色
+                        });
+                        const birchCrown = new THREE.Mesh(birchCrownGeometry, birchCrownMaterial);
+                        birchCrown.position.y = trunkHeight - 50 + 3;
+                        birchCrown.castShadow = true;
+                        treeGroup.add(birchCrown);
+                        break;
+                        
+                    case 'palm': // 热带棕榈树
+                        trunkHeight = 14 + Math.random() * 8;
+                        trunkRadius = 0.8;
+                        
+                        // 棕榈树弯曲树干
+                        const palmTrunkGeometry = new THREE.CylinderGeometry(
+                            trunkRadius * 0.6, trunkRadius, trunkHeight, 8
+                        );
+                        const palmTrunkMaterial = new THREE.MeshLambertMaterial({ 
+                            color: 0xD2691E // 温暖的橙棕色
+                        });
+                        const palmTrunk = new THREE.Mesh(palmTrunkGeometry, palmTrunkMaterial);
+                        palmTrunk.position.y = trunkHeight / 2 - 50;
+                        palmTrunk.rotation.z = (Math.random() - 0.5) * 0.4; // 轻微倾斜
+                        palmTrunk.castShadow = true;
+                        treeGroup.add(palmTrunk);
+                        
+                        // 棕榈叶 - 更真实的造型
+                        for (let leaf = 0; leaf < 12; leaf++) {
+                            const leafGeometry = new THREE.CylinderGeometry(0.1, 0.4, 7, 4);
+                            const leafMaterial = new THREE.MeshLambertMaterial({ 
+                                color: 0x228B22 // 热带绿
+                            });
+                            const palmLeaf = new THREE.Mesh(leafGeometry, leafMaterial);
+                            const angle = (leaf / 12) * Math.PI * 2;
+                            const radius = 2.5 + Math.random() * 0.5;
+                            palmLeaf.position.set(
+                                Math.cos(angle) * radius,
+                                trunkHeight - 50 + 3,
+                                Math.sin(angle) * radius
+                            );
+                            palmLeaf.rotation.z = angle + Math.PI / 2.5; // 向外弯曲
+                            palmLeaf.rotation.x = (Math.random() - 0.5) * 0.3; // 随机倾斜
+                            palmLeaf.castShadow = true;
+                            treeGroup.add(palmLeaf);
+                        }
+                        break;
+                        
+                    case 'mixed':
+                        // 混合林中随机选择树种
+                        const mixedTypes = ['pine', 'oak', 'birch'];
+                        return this.createTree(x, z, mixedTypes[Math.floor(Math.random() * mixedTypes.length)]);
+                }
+                
+                // 添加轻微随机旋转，增加自然感
+                treeGroup.rotation.y = Math.random() * Math.PI * 2;
+                treeGroup.position.set(x, 0, z);
+                this.scene.add(treeGroup);
+            }
+
+            createRoads() {
+                // 创建主要公路网络
+                this.createRoad(-3000, 0, 3000, 0, 20, 0x2F2F2F);     // 东西主干道
+                this.createRoad(0, -3000, 0, 3000, 20, 0x2F2F2F);     // 南北主干道
+                this.createRoad(-1500, -1500, 1500, 1500, 15, 0x404040); // 对角线道路
+                this.createRoad(-1500, 1500, 1500, -1500, 15, 0x404040); // 另一条对角线
+                
+                // 添加一些小路
+                for (let i = 0; i < 8; i++) {
+                    const x1 = (Math.random() - 0.5) * 4000;
+                    const z1 = (Math.random() - 0.5) * 4000;
+                    const x2 = x1 + (Math.random() - 0.5) * 1000;
+                    const z2 = z1 + (Math.random() - 0.5) * 1000;
+                    this.createRoad(x1, z1, x2, z2, 8, 0x555555);
+                }
+            }
+
+            createRoad(x1, z1, x2, z2, width, color) {
+                const length = Math.sqrt((x2 - x1) ** 2 + (z2 - z1) ** 2);
+                const roadGeometry = new THREE.PlaneGeometry(width, length, 4, 20);
+                const roadMaterial = new THREE.MeshLambertMaterial({ 
+                    color: color
+                });
+                
+                const road = new THREE.Mesh(roadGeometry, roadMaterial);
+                road.rotation.x = -Math.PI / 2;
+                road.position.set(
+                    (x1 + x2) / 2,
+                    -48, // 稍高于地面，低于河流
+                    (z1 + z2) / 2
+                );
+                
+                // 计算公路角度
+                const angle = Math.atan2(z2 - z1, x2 - x1);
+                road.rotation.y = angle - Math.PI / 2;
+                
+                road.receiveShadow = true;
+                this.scene.add(road);
+                
+                // 添加道路标线
+                this.createRoadLines(x1, z1, x2, z2, width);
+            }
+
+            createRoadLines(x1, z1, x2, z2, width) {
+                const length = Math.sqrt((x2 - x1) ** 2 + (z2 - z1) ** 2);
+                const lineGeometry = new THREE.PlaneGeometry(2, length, 1, 10);
+                const lineMaterial = new THREE.MeshLambertMaterial({ 
+                    color: 0xFFFFFF // 白色标线
+                });
+                
+                const roadLine = new THREE.Mesh(lineGeometry, lineMaterial);
+                roadLine.rotation.x = -Math.PI / 2;
+                roadLine.position.set(
+                    (x1 + x2) / 2,
+                    -47.5, // 稍高于道路
+                    (z1 + z2) / 2
+                );
+                
+                const angle = Math.atan2(z2 - z1, x2 - x1);
+                roadLine.rotation.y = angle - Math.PI / 2;
+                
+                this.scene.add(roadLine);
+            }
+
+            createBuildings() {
+                // 创建城镇区域
+                this.createTownArea(-800, -800, 600, 600); // 主城区
+                this.createTownArea(1200, 800, 400, 400);  // 小镇1
+                this.createTownArea(-1500, 1000, 300, 300); // 小镇2
+                
+                // 创建一些独立建筑
+                for (let i = 0; i < 50; i++) {
+                    const x = (Math.random() - 0.5) * 6000;
+                    const z = (Math.random() - 0.5) * 6000;
+                    this.createRandomBuilding(x, z);
+                }
+            }
+
+            createTownArea(centerX, centerZ, width, depth) {
+                const buildingsPerRow = 6;
+                const spacing = Math.min(width, depth) / buildingsPerRow;
+                
+                for (let i = 0; i < buildingsPerRow; i++) {
+                    for (let j = 0; j < buildingsPerRow; j++) {
+                        const x = centerX + (i - buildingsPerRow/2) * spacing + (Math.random() - 0.5) * 20;
+                        const z = centerZ + (j - buildingsPerRow/2) * spacing + (Math.random() - 0.5) * 20;
+                        this.createRandomBuilding(x, z, true); // 城镇建筑更大
+                    }
+                }
+            }
+
+            createRandomBuilding(x, z, isTown = false) {
+                const buildingGroup = new THREE.Group();
+                
+                // 建筑尺寸
+                const width = isTown ? 20 + Math.random() * 30 : 10 + Math.random() * 15;
+                const depth = isTown ? 20 + Math.random() * 30 : 10 + Math.random() * 15;
+                const height = isTown ? 30 + Math.random() * 80 : 15 + Math.random() * 25;
+                
+                // 主建筑
+                const buildingGeometry = new THREE.BoxGeometry(width, height, depth);
+                const buildingColors = [0x8B7355, 0xA0522D, 0x696969, 0x778899, 0xDC143C]; // 各种建筑颜色
+                const buildingMaterial = new THREE.MeshLambertMaterial({ 
+                    color: buildingColors[Math.floor(Math.random() * buildingColors.length)]
+                });
+                
+                const building = new THREE.Mesh(buildingGeometry, buildingMaterial);
+                building.position.y = height / 2 - 50;
+                building.castShadow = true;
+                building.receiveShadow = true;
+                buildingGroup.add(building);
+                
+                // 屋顶
+                const roofGeometry = new THREE.ConeGeometry(
+                    Math.max(width, depth) * 0.7, 
+                    height * 0.3, 
+                    4
+                );
+                const roofMaterial = new THREE.MeshLambertMaterial({ 
+                    color: 0x8B0000 // 红色屋顶
+                });
+                const roof = new THREE.Mesh(roofGeometry, roofMaterial);
+                roof.position.y = height - 50 + height * 0.15;
+                roof.rotation.y = Math.PI / 4;
+                roof.castShadow = true;
+                buildingGroup.add(roof);
+                
+                // 随机添加窗户（简单的黄色方块）
+                if (isTown) {
+                    for (let i = 0; i < 8; i++) {
+                        const windowGeometry = new THREE.PlaneGeometry(3, 4);
+                        const windowMaterial = new THREE.MeshLambertMaterial({ 
+                            color: 0xFFFF00, // 黄色窗户（灯光）
+                            transparent: true,
+                            opacity: 0.8
+                        });
+                        const window = new THREE.Mesh(windowGeometry, windowMaterial);
+                        window.position.set(
+                            (Math.random() - 0.5) * width * 0.8,
+                            (Math.random() - 0.3) * height - 50,
+                            width / 2 + 0.1
+                        );
+                        buildingGroup.add(window);
+                    }
+                }
+                
+                buildingGroup.position.set(x, 0, z);
+                this.scene.add(buildingGroup);
+            }
+
+            showAnimationControls() {
+                if (!this.modelAnimations || this.modelAnimations.length === 0) return;
+                
+                // 创建动画控制面板
+                const controlPanel = document.createElement('div');
+                controlPanel.id = 'animationControls';
+                controlPanel.style.cssText = `
+                    position: fixed;
+                    top: 120px;
+                    right: 20px;
+                    background: rgba(0, 0, 0, 0.8);
+                    color: white;
+                    padding: 15px;
+                    border-radius: 10px;
+                    font-family: monospace;
+                    z-index: 1000;
+                    max-width: 250px;
+                `;
+                
+                controlPanel.innerHTML = `
+                    <h4 style="margin: 0 0 10px 0; color: #00ff00;">✈️ Animation Controls</h4>
+                    <div id="animationList"></div>
+                    <button id="playAllAnimations" style="margin-top: 10px; width: 100%;">▶️ Play All</button>
+                    <button id="stopAllAnimations" style="margin-top: 5px; width: 100%;">⏹️ Stop All</button>
+                `;
+                
+                const animationList = controlPanel.querySelector('#animationList');
+                
+                // 为每个动画创建控制按钮
+                this.modelAnimations.forEach((clip, index) => {
+                    const animDiv = document.createElement('div');
+                    animDiv.style.cssText = 'margin: 5px 0; padding: 5px; background: rgba(255,255,255,0.1); border-radius: 5px;';
+                    
+                    animDiv.innerHTML = `
+                        <div style="font-size: 12px; color: #00ffff;">${clip.name || `Animation ${index + 1}`}</div>
+                        <div style="font-size: 10px; color: #888;">Duration: ${clip.duration.toFixed(1)}s</div>
+                        <button class="playAnim" data-index="${index}" style="font-size: 10px; margin-top: 3px;">▶️ Play</button>
+                        <button class="pauseAnim" data-index="${index}" style="font-size: 10px; margin-left: 5px;">⏸️ Pause</button>
+                    `;
+                    
+                    animationList.appendChild(animDiv);
+                });
+                
+                // 添加事件监听器
+                controlPanel.querySelector('#playAllAnimations').addEventListener('click', () => {
+                    this.activeAnimations.forEach(action => action.play());
+                });
+                
+                controlPanel.querySelector('#stopAllAnimations').addEventListener('click', () => {
+                    this.activeAnimations.forEach(action => action.stop());
+                });
+                
+                // 单个动画控制
+                controlPanel.querySelectorAll('.playAnim').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        const index = parseInt(e.target.dataset.index);
+                        if (this.activeAnimations[index]) {
+                            this.activeAnimations[index].play();
+                        }
+                    });
+                });
+                
+                controlPanel.querySelectorAll('.pauseAnim').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        const index = parseInt(e.target.dataset.index);
+                        if (this.activeAnimations[index]) {
+                            this.activeAnimations[index].paused = !this.activeAnimations[index].paused;
+                        }
+                    });
+                });
+                
+                document.body.appendChild(controlPanel);
+                
+                // 3秒后自动淡化控制面板
+                setTimeout(() => {
+                    if (controlPanel.parentNode) {
+                        controlPanel.style.opacity = '0.3';
+                    }
+                }, 3000);
+            }
+
+            setupFileUpload() {
+                const fileInput = document.getElementById('fileInput');
+                const uploadArea = document.getElementById('glbUpload');
+                
+                // File input change
+                fileInput.addEventListener('change', (event) => {
+                    const file = event.target.files[0];
+                    if (file) {
+                        this.loadGLBModel(file);
+                    }
+                });
+                
+                // Drag and drop
+                uploadArea.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    uploadArea.style.borderColor = '#4CAF50';
+                    uploadArea.style.backgroundColor = 'rgba(76, 175, 80, 0.1)';
+                });
+                
+                uploadArea.addEventListener('dragleave', (e) => {
+                    e.preventDefault();
+                    uploadArea.style.borderColor = '';
+                    uploadArea.style.backgroundColor = '';
+                });
+                
+                uploadArea.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    uploadArea.style.borderColor = '';
+                    uploadArea.style.backgroundColor = '';
+                    
+                    const files = e.dataTransfer.files;
+                    if (files.length > 0) {
+                        const file = files[0];
+                        if (file.name.toLowerCase().endsWith('.glb') || file.name.toLowerCase().endsWith('.gltf')) {
+                            this.loadGLBModel(file);
+                        } else {
+                            this.showNotification('Please drop a GLB or GLTF file', 'error');
+                        }
+                    }
+                });
+            }
+
+            loadGLBModel(file) {
+                this.showNotification('Loading aircraft model...', 'success');
+                
+                const loader = new GLTFLoader();
+                const url = URL.createObjectURL(file);
+                
+                loader.load(url, (gltf) => {
+                    // Remove existing aircraft if loaded model exists
+                    if (this.loadedModel) {
+                        this.scene.remove(this.loadedModel);
+                        // 清理旧的动画混合器
+                        if (this.modelAnimationMixer) {
+                            this.modelAnimationMixer.stopAllAction();
+                            this.modelAnimationMixer = null;
+                        }
+                    } else if (this.aircraft) {
+                        this.scene.remove(this.aircraft);
+                    }
+                    
+                    const model = gltf.scene;
+                    
+                    // === 动画系统设置 ===
+                    this.modelAnimations = gltf.animations; // 存储动画数据
+                    this.modelAnimationMixer = null;
+                    this.activeAnimations = []; // 存储当前播放的动画
+                    
+                    // 如果模型包含动画，创建动画混合器
+                    if (gltf.animations && gltf.animations.length > 0) {
+                        this.modelAnimationMixer = new THREE.AnimationMixer(model);
+                        
+                        console.log(`Found ${gltf.animations.length} animations:`, gltf.animations.map(anim => anim.name));
+                        
+                        // 自动播放所有动画（通常用于螺旋桨、引擎等循环动画）
+                        gltf.animations.forEach((clip, index) => {
+                            const action = this.modelAnimationMixer.clipAction(clip);
+                            action.setLoop(THREE.LoopRepeat);
+                            action.clampWhenFinished = false;
+                            
+                            // 自动识别动画类型
+                            const animName = clip.name.toLowerCase();
+                            if (animName.includes('propeller') || 
+                                animName.includes('rotor') || 
+                                animName.includes('engine') ||
+                                animName.includes('fan') ||
+                                animName.includes('spin')) {
+                                // 快速循环动画（螺旋桨等）
+                                action.timeScale = 2.0; // 2倍速度
+                                action.play();
+                                this.activeAnimations.push(action);
+                                console.log(`Auto-playing fast animation: ${clip.name}`);
+                            } else if (animName.includes('idle') || 
+                                      animName.includes('loop') ||
+                                      clip.duration > 10) {
+                                // 慢速循环动画
+                                action.timeScale = 1.0;
+                                action.play();
+                                this.activeAnimations.push(action);
+                                console.log(`Auto-playing slow animation: ${clip.name}`);
+                            } else {
+                                // 其他动画默认也播放
+                                action.timeScale = 1.0;
+                                action.play();
+                                this.activeAnimations.push(action);
+                                console.log(`Auto-playing animation: ${clip.name}`);
+                            }
+                        });
+                        
+                        this.showNotification(`Aircraft loaded with ${gltf.animations.length} animations!`, 'success');
+                    } else {
+                        this.showNotification('Aircraft loaded (no animations found)', 'success');
+                    }
+                    
+                    // Calculate model bounding box to determine appropriate scale
+                    const box = new THREE.Box3().setFromObject(model);
+                    const size = box.getSize(new THREE.Vector3());
+                    
+                    // Target size should be similar to default aircraft (wingspan ~18, length ~14)
+                    const targetSize = 18; // Target wingspan/length
+                    const currentMaxSize = Math.max(size.x, size.y, size.z);
+                    const scaleRatio = targetSize / currentMaxSize;
+                    
+                    // Apply calculated scale (minimum 15x for very small models) and additional 1.5x multiplier
+                    const finalScale = Math.max(scaleRatio, 15) * 1.5;
+                    model.scale.set(finalScale, finalScale, finalScale);
+                    
+                    // Enhance materials for better lighting
+                    model.traverse((child) => {
+                        if (child.isMesh) {
+                            child.castShadow = true;
+                            child.receiveShadow = true;
+                            
+                            if (child.material) {
+                                if (Array.isArray(child.material)) {
+                                    child.material.forEach(mat => {
+                                        this.enhanceMaterial(mat);
+                                    });
+                                } else {
+                                    this.enhanceMaterial(child.material);
+                                }
+                            }
+                        }
+                    });
+                    
+                    model.position.copy(this.playerPosition);
+                    this.loadedModel = model;
+                    this.aircraft = model;
+                    this.scene.add(model);
+                    
+                    // 显示动画控制面板（如果有动画）
+                    if (gltf.animations && gltf.animations.length > 0) {
+                        // 移除旧的控制面板
+                        const oldPanel = document.getElementById('animationControls');
+                        if (oldPanel) oldPanel.remove();
+                        
+                        // 显示新的动画控制面板
+                        setTimeout(() => this.showAnimationControls(), 500);
+                    }
+                    
+                    URL.revokeObjectURL(url);
+                    
+                }, undefined, (error) => {
+                    console.error('Error loading GLB model:', error);
+                    this.showNotification('Failed to load aircraft model', 'error');
+                    URL.revokeObjectURL(url);
+                });
+            }
+
+            enhanceMaterial(material) {
+                // === 轻微增亮过暗材质 ===
+                if (material.color && material.color.r + material.color.g + material.color.b < 0.3) {
+                    material.color.multiplyScalar(1.5); // 降低到1.5倍，避免过曝
+                }
+                
+                // === 适度优化PBR材质属性 ===
+                if (material.metalness !== undefined) {
+                    material.metalness = Math.min(material.metalness + 0.2, 0.6); // 适度增加金属度
+                }
+                if (material.roughness !== undefined) {
+                    material.roughness = Math.max(material.roughness - 0.1, 0.4); // 适度降低粗糙度
+                }
+                
+                // === 移除自发光效果 ===
+                // 不添加自发光，使用自然光照
+                
+                // === 适度环境光响应 ===
+                if (material.envMapIntensity !== undefined) {
+                    material.envMapIntensity = 1.0; // 降低到1.0，自然反射
+                }
+                
+                // === 确保材质响应光照 ===
+                material.needsUpdate = true;
+                
+                // === 适度提升极暗材质 ===
+                if (material.color && material.color.getHSL({}).l < 0.15) {
+                    // 仅对极暗材质进行轻微调整
+                    const hsl = material.color.getHSL({});
+                    material.color.setHSL(hsl.h, hsl.s, Math.max(hsl.l, 0.2)); // 最低20%亮度
+                }
+            }
+
+            setupKeyboardControls() {
+                document.addEventListener('keydown', (event) => {
+                    this.inputState.keys.add(event.code);
+                });
+                
+                document.addEventListener('keyup', (event) => {
+                    this.inputState.keys.delete(event.code);
+                });
+            }
+
+            updateInputFromKeyboard(deltaTime) {
+                const keys = this.inputState.keys;
+                const turnSpeed = 1.5; // radians per second
+                const pitchSpeed = 1.0; // radians per second  
+                const speedChangeRate = 0.8; // speed change per second
+
+                // Yaw controls (left/right turns)
+                if (keys.has('KeyA') || keys.has('ArrowLeft')) {
+                    this.inputState.yaw += turnSpeed * deltaTime;
+                }
+                if (keys.has('KeyD') || keys.has('ArrowRight')) {
+                    this.inputState.yaw -= turnSpeed * deltaTime;
+                }
+
+                // Pitch controls (nose up/down)
+                if (keys.has('KeyW') || keys.has('ArrowUp')) {
+                    this.inputState.pitch = Math.min(this.inputState.pitch + pitchSpeed * deltaTime, Math.PI / 4);
+                }
+                if (keys.has('KeyS') || keys.has('ArrowDown')) {
+                    this.inputState.pitch = Math.max(this.inputState.pitch - pitchSpeed * deltaTime, -Math.PI / 4);
+                }
+
+                // Roll controls (banking) - 允许360度翻转
+                if (keys.has('KeyQ')) {
+                    this.inputState.roll -= turnSpeed * deltaTime; // 移除限制，允许无限翻转
+                } else if (keys.has('KeyE')) {
+                    this.inputState.roll += turnSpeed * deltaTime; // 移除限制，允许无限翻转
+                } else {
+                    // Auto-level roll - 仅在接近水平时自动调平
+                    const levelingSpeed = 2.0;
+                    // 计算到最近的水平位置的距离
+                    const normalizedRoll = ((this.inputState.roll % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+                    let targetRoll = 0;
+                    if (normalizedRoll > Math.PI) {
+                        targetRoll = Math.PI * 2;
+                    }
+                    const rollDiff = Math.abs(normalizedRoll - targetRoll);
+                    
+                    // 只有在接近水平位置时才自动调平
+                    if (rollDiff < Math.PI / 6) { // 30度范围内
+                        if (Math.abs(this.inputState.roll) > 0.01) {
+                            this.inputState.roll = THREE.MathUtils.lerp(this.inputState.roll, Math.round(this.inputState.roll / (Math.PI * 2)) * Math.PI * 2, deltaTime * levelingSpeed);
+                        } else {
+                            this.inputState.roll = Math.round(this.inputState.roll / (Math.PI * 2)) * Math.PI * 2;
+                        }
+                    }
+                }
+
+                // Speed controls
+                if (keys.has('ShiftLeft') || keys.has('ShiftRight') || keys.has('Space')) {
+                    this.inputState.speed = Math.min(this.inputState.speed + speedChangeRate * deltaTime, 1.0);
+                }
+                if (keys.has('ControlLeft') || keys.has('ControlRight') || keys.has('KeyX')) {
+                    this.inputState.speed = Math.max(this.inputState.speed - speedChangeRate * deltaTime, 0.2);
+                }
+
+                // Auto-level pitch when no input
+                if (!keys.has('KeyW') && !keys.has('KeyS') && 
+                    !keys.has('ArrowUp') && !keys.has('ArrowDown')) {
+                    const levelingSpeed = 2.0;
+                    if (Math.abs(this.inputState.pitch) > 0.01) {
+                        this.inputState.pitch = THREE.MathUtils.lerp(this.inputState.pitch, 0, deltaTime * levelingSpeed);
+                    } else {
+                        this.inputState.pitch = 0;
+                    }
+                }
+
+                // Weather toggle
+                if (keys.has('KeyR')) {
+                    if (!this.rKeyPressed) {
+                        this.toggleWeather();
+                        this.rKeyPressed = true;
+                    }
+                } else {
+                    this.rKeyPressed = false;
+                }
+            }
+
+            updatePlayer(deltaTime) {
+                if (!this.aircraft) return;
+
+                // Update input from keyboard
+                this.updateInputFromKeyboard(deltaTime);
+
+                // Update speed based on input
+                const maxSpeed = 120; // Maximum speed
+                const targetSpeed = Math.max(this.inputState.speed * maxSpeed, 30); // Minimum 30 for flight
+                this.playerSpeed = THREE.MathUtils.lerp(this.playerSpeed, targetSpeed, deltaTime * 2);
+
+                // Calculate forward direction based on pitch and yaw
+                const forward = new THREE.Vector3(0, 0, 1); // +Z is forward for our aircraft
+                const rotation = new THREE.Euler(this.inputState.pitch, this.inputState.yaw, this.inputState.roll);
+                forward.applyEuler(rotation);
+
+                // Apply constant thrust in forward direction (this ensures the plane always moves forward)
+                const thrust = forward.clone().multiplyScalar(this.playerSpeed);
+                this.playerVelocity.copy(thrust); // Set velocity directly to thrust direction and speed
+
+                // Apply lift when flying forward (simple aerodynamics)
+                if (this.playerSpeed > 40) {
+                    const liftStrength = Math.min(this.playerSpeed / 80, 1.0);
+                    const liftDirection = new THREE.Vector3(0, 1, 0); // Upward
+                    const lift = liftDirection.multiplyScalar(liftStrength * 25 * deltaTime);
+                    this.playerVelocity.add(lift);
+                }
+
+                // Apply gravity
+                const gravity = new THREE.Vector3(0, -30, 0);
+                this.playerVelocity.add(gravity.multiplyScalar(deltaTime));
+
+                // Light air resistance (much reduced)
+                this.playerVelocity.multiplyScalar(1 - 0.1 * deltaTime);
+
+                // Update position
+                this.playerPosition.add(this.playerVelocity.clone().multiplyScalar(deltaTime));
+
+                // === INFINITE LOOPING WORLD SYSTEM ===
+                const worldBoundary = 4000; // 8000x8000地形的边界（从中心到边缘4000单位）
+                let worldWrapped = false;
+                
+                // X轴边界检查
+                if (this.playerPosition.x > worldBoundary) {
+                    this.playerPosition.x = -worldBoundary + 1;
+                    worldWrapped = true;
+                } else if (this.playerPosition.x < -worldBoundary) {
+                    this.playerPosition.x = worldBoundary - 1;
+                    worldWrapped = true;
+                }
+                
+                // Z轴边界检查
+                if (this.playerPosition.z > worldBoundary) {
+                    this.playerPosition.z = -worldBoundary + 1;
+                    worldWrapped = true;
+                } else if (this.playerPosition.z < -worldBoundary) {
+                    this.playerPosition.z = worldBoundary - 1;
+                    worldWrapped = true;
+                }
+                
+                // 显示循环世界提示消息
+                if (worldWrapped) {
+                    this.showWrapMessage();
+                }
+
+                // Keep aircraft above ground
+                if (this.playerPosition.y < 10) {
+                    this.playerPosition.y = 10;
+                    this.playerVelocity.y = Math.max(this.playerVelocity.y, 0);
+                    this.playerVelocity.multiplyScalar(0.7); // Bounce damping
+                }
+
+                // Update aircraft position and rotation
+                this.aircraft.position.copy(this.playerPosition);
+                
+                // Set aircraft rotation based on flight controls
+                this.aircraft.rotation.set(
+                    this.inputState.pitch,
+                    this.inputState.yaw, 
+                    this.inputState.roll
+                );
+
+                // === 移除动态光照跟踪，使用自然光照 ===
+                // 不再需要专用光源跟随飞机
+
+                // Update propeller animation
+                this.updatePropeller(deltaTime);
+            }
+
+            updateCamera() {
+                if (!this.aircraft) return;
+                
+                // Third-person camera following aircraft
+                const distance = 80;
+                const height = 30;
+                
+                // Calculate aircraft forward direction
+                const forward = new THREE.Vector3(0, 0, 1);
+                const rotation = new THREE.Euler(this.inputState.pitch, this.inputState.yaw, this.inputState.roll);
+                forward.applyEuler(rotation);
+                
+                // Position camera behind and above aircraft
+                const cameraOffset = forward.clone().multiplyScalar(-distance);
+                cameraOffset.y += height;
+                
+                const targetPosition = this.playerPosition.clone().add(cameraOffset);
+                
+                // Smooth camera movement
+                this.camera.position.lerp(targetPosition, 0.1);
+                this.camera.lookAt(this.playerPosition);
+            }
+
+            updateClouds(deltaTime) {
+                // Slowly move clouds
+                this.clouds.forEach(cloud => {
+                    cloud.position.x += Math.sin(Date.now() * 0.0001) * 0.1;
+                    cloud.rotation.y += deltaTime * 0.1;
+                });
+            }
+
+            hideLoadingScreen() {
+                const loadingScreen = document.getElementById('loadingScreen');
+                const progressFill = document.getElementById('progressFill');
+                
+                // Simulate loading progress
+                let progress = 0;
+                const progressInterval = setInterval(() => {
+                    progress += Math.random() * 20;
+                    if (progress >= 100) {
+                        progress = 100;
+                        progressFill.style.width = '100%';
+                        
+                        setTimeout(() => {
+                            loadingScreen.style.opacity = '0';
+                            loadingScreen.style.transition = 'opacity 1s ease';
+                            setTimeout(() => {
+                                loadingScreen.style.display = 'none';
+                            }, 1000);
+                        }, 500);
+                        
+                        clearInterval(progressInterval);
+                    }
+                    progressFill.style.width = progress + '%';
+                }, 100);
+            }
+
+            showNotification(message, type = 'success') {
+                const notification = document.getElementById('notification');
+                notification.textContent = message;
+                notification.className = `notification-${type}`;
+                notification.style.display = 'block';
+                
+                setTimeout(() => {
+                    notification.style.display = 'none';
+                }, 3000);
+            }
+
+            gameLoop() {
+                const deltaTime = 0.016; // Approximately 60 FPS
+                
+                this.updatePlayer(deltaTime);
+                this.updateCamera();
+                this.updateClouds(deltaTime);
+                this.updatePropeller(deltaTime);
+                
+                // === 更新GLB模型动画 ===
+                if (this.modelAnimationMixer) {
+                    const animationDelta = this.animationClock.getDelta();
+                    this.modelAnimationMixer.update(animationDelta);
+                }
+                
+                this.renderer.render(this.scene, this.camera);
+                requestAnimationFrame(() => this.gameLoop());
+            }
+
+            updatePropeller(deltaTime) {
+                // Animate propeller spinning
+                if (this.propeller) {
+                    this.propeller.rotation.z += 30 * deltaTime; // Fast spinning around Z axis (forward motion)
+                }
+            }
+
+            showWrapMessage() {
+                // 防止消息过于频繁显示
+                const currentTime = Date.now();
+                if (currentTime - this.lastWrapMessageTime < 3000) return; // 3秒间隔
+                
+                this.lastWrapMessageTime = currentTime;
+                
+                // 创建提示消息
+                const messages = [
+                    "🌍 穿越至新的区域...",
+                    "✈️ 飞向了星球的另一边",
+                    "🗺️ 世界边缘传送中...",
+                    "🌌 循环世界让你能无限探索"
+                ];
+                
+                const randomMessage = messages[Math.floor(Math.random() * messages.length)];
+                
+                // 显示临时消息
+                const messageElement = document.createElement('div');
+                messageElement.textContent = randomMessage;
+                messageElement.style.cssText = `
+                    position: fixed;
+                    top: 20%;
+                    left: 50%;
+                    transform: translateX(-50%);
+                    background: rgba(0, 0, 0, 0.8);
+                    color: #00ff00;
+                    padding: 15px 25px;
+                    border-radius: 10px;
+                    font-size: 18px;
+                    font-family: 'Courier New', monospace;
+                    z-index: 1000;
+                    pointer-events: none;
+                    animation: fadeInOut 3s ease-in-out;
+                `;
+                
+                // 添加CSS动画
+                if (!document.querySelector('#wrapMessageStyle')) {
+                    const style = document.createElement('style');
+                    style.id = 'wrapMessageStyle';
+                    style.textContent = `
+                        @keyframes fadeInOut {
+                            0% { opacity: 0; transform: translateX(-50%) translateY(-20px); }
+                            20% { opacity: 1; transform: translateX(-50%) translateY(0); }
+                            80% { opacity: 1; transform: translateX(-50%) translateY(0); }
+                            100% { opacity: 0; transform: translateX(-50%) translateY(20px); }
+                        }
+                    `;
+                    document.head.appendChild(style);
+                }
+                
+                document.body.appendChild(messageElement);
+                
+                // 3秒后移除消息
+                setTimeout(() => {
+                    if (messageElement.parentNode) {
+                        messageElement.parentNode.removeChild(messageElement);
+                    }
+                }, 3000);
+            }
+        }
+
+        // Start the game
+        const game = new SkyWarriors();
+    </script>
+</body>
+</html>
