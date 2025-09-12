@@ -646,35 +646,45 @@
                 }
                 planeGroup.add(tailWingGroup);
                 
-                // === VERTICAL STABILIZER (垂直尾翼) REWORK: 前缘垂直 后缘斜向后 (反转方向) ===
+                // === VERTICAL STABILIZER (垂直尾翼) REWORK: 仅前后翻转 ===
+                // 要求：保持之前高度与厚度，不上下翻，改成前缘垂直，尖端朝前（机头方向）
                 (function(){
-                    const chord = 3.2;      // 前后长度 (Z方向)
-                    const height = 4.2;     // 高度 (Y方向)
+                    const chord = 3.2;      // 尖端到根部的长度（最终 Z 方向）
+                    const height = 4.2;     // 高度
                     const r = 0.35;         // 圆角半径
                     const thickness = 0.18;  // 厚度 (X方向)
+                    // 在 XY 平面构建：X 负方向代表“前” (旋转后 X->Z 取反)，保持后续旋转一致
                     const shape = new THREE.Shape();
-                    // 改为前缘在 Z=0 垂直，后缘斜退形成尖端
-                    // 起点：前缘根部 (Z=0,Y=r)
+                    // 设计：根部垂直前缘在 X=0，尖端向前 (负X) 且稍低于最高点，形成右角三角形+圆角
+                    // 顺时针：从前缘下方圆角开始
                     shape.moveTo(0, r);
-                    shape.quadraticCurveTo(0,0, r,0);                       // 前下角圆角
-                    shape.lineTo(0 + r, 0); // 保持一致
-                    shape.lineTo(chord - r, height - r);                    // 向后上方斜线
-                    shape.quadraticCurveTo(chord, height, chord - r, height - r*0.3); // 后上角圆角
-                    shape.lineTo(chord - r, r);
-                    shape.quadraticCurveTo(chord,0, chord - r - 0.05, r*0.6); // 后下角圆角
-                    shape.quadraticCurveTo(chord * 0.55, height*0.52, 0, height - r); // 再收回到前缘顶部
-                    shape.quadraticCurveTo(0, height, 0, height - r);       // 顶角圆角
+                    shape.quadraticCurveTo(0,0, -r,0);              // 前下角圆角（翻转后仍在前）
+                    shape.lineTo(-chord + r*1.1, height*0.55);      // 斜向上到尖端附近
+                    shape.quadraticCurveTo(-chord, height*0.58, -chord + r*0.6, height*0.65); // 尖端微圆角
+                    shape.lineTo(-r, height - r);                   // 回到前缘上方
+                    shape.quadraticCurveTo(0, height, 0, height - r); // 前上角圆角
                     shape.closePath();
+                    // 挤出
                     const extrudeGeo = new THREE.ExtrudeGeometry(shape, { depth: thickness, bevelEnabled:false });
-                    extrudeGeo.rotateY(Math.PI / 2);
-                    extrudeGeo.translate(0, 0, -chord * 0.5);
+                    // 旋转到与机体一致：x(形状) 经过 rotateY(90°) -> z' = -x ；我们希望负x(前) 变成正z(前)
+                    extrudeGeo.rotateY(Math.PI / 2); // 这样 x负 => z正，实现朝前翻转
+                    // 使厚度中心居中
+                    extrudeGeo.translate(0,0,0); // 不做 chord 平移，保留前缘在 z≈0
                     extrudeGeo.computeBoundingBox();
                     const bb = extrudeGeo.boundingBox;
+                    // 把底边放到 y=0
                     const yOffset = -bb.min.y;
-                    const zCenter = -(bb.min.z + bb.max.z)/2;
-                    extrudeGeo.translate(0, yOffset, zCenter);
+                    extrudeGeo.translate(0, yOffset, 0);
+                    // 重新计算并确保前缘对齐：前缘在 z=0，保持根部基准
+                    // 若前缘偏移则校正
+                    extrudeGeo.computeBoundingBox();
+                    const bb2 = extrudeGeo.boundingBox;
+                    // 寻找最小 z 作为前缘（应接近0）。如果不是，就平移到0。
+                    if (Math.abs(bb2.min.z) > 1e-4) {
+                        extrudeGeo.translate(0,0,-bb2.min.z);
+                    }
                     const fin = new THREE.Mesh(extrudeGeo, wingMaterial);
-                    fin.position.set(0, 0, -10);
+                    fin.position.set(0, 0, -10); // 保持原尾部位置
                     fin.castShadow = true;
                     planeGroup.add(fin);
                 })();
