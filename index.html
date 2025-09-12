@@ -612,46 +612,71 @@
                 
                 // === HORIZONTAL STABILIZER (水平尾翼) REWORK: 分段渐缩与主翼风格一致 ===
                 const tailWingGroup = new THREE.Group();
-                const tailSections = 4;           // 分段数量（每侧）
-                const tailSpanHalf = 4.0;         // 半翼展接近原8长度的一半
-                const baseChord = 2.2;            // 根部弦长（Z方向）
-                const tipChord = 1.2;             // 翼尖弦长
-                const baseThickness = 0.6;        // 根部厚度（Y）
-                const tipThickness = 0.25;        // 翼尖厚度
+                const tailSections = 4;               // 分段数量（每侧）
+                const tailSpanHalf = 4.3;             // 半翼展 ≈ 主翼半翼展(≈10.8) 的40%
+                const baseChord = 2.2;                // 根部弦长
+                const tipChord = 1.2;                 // 翼尖弦长
+                const baseThickness = 0.55;           // 根部厚度
+                const tipThickness = 0.22;            // 尖部厚度
                 const segmentSpan = tailSpanHalf / tailSections; // 每段跨度
                 for (let side = -1; side <= 1; side += 2) {
                     for (let i = 0; i < tailSections; i++) {
                         const t = i / (tailSections - 1);
                         const chord = THREE.MathUtils.lerp(baseChord, tipChord, t);
                         const thickness = THREE.MathUtils.lerp(baseThickness, tipThickness, t);
-                        const spanWidth = segmentSpan * 1.8; // 使段间稍有重合避免缝隙
+                        const spanWidth = segmentSpan * 0.95; // 略收以减少重叠
                         const geo = new THREE.BoxGeometry(spanWidth, thickness, chord);
                         const seg = new THREE.Mesh(geo, wingMaterial);
-                        const spanOffset = (i + 0.5) * segmentSpan * 1.8; // 与宽度一致
+                        const spanOffset = (i + 0.5) * segmentSpan; // 直接使用真实跨度
                         seg.position.set(side * spanOffset, 0, -10);
                         // 轻微上反角 + 扭转
-                        seg.rotation.z = side * THREE.MathUtils.degToRad(3 + t * 2);
-                        seg.rotation.y = side * THREE.MathUtils.degToRad(1.5 + t * 2);
+                        seg.rotation.z = side * THREE.MathUtils.degToRad(3 + t * 1.5);
+                        seg.rotation.y = side * THREE.MathUtils.degToRad(1.0 + t * 1.5);
                         seg.castShadow = true;
                         tailWingGroup.add(seg);
                     }
                     // 翼尖（圆润收束）
-                    const tipGeo = new THREE.CapsuleGeometry(0.35, 0.8, 4, 8);
+                    const tipGeo = new THREE.CapsuleGeometry(0.32, 0.6, 4, 8);
                     const tip = new THREE.Mesh(tipGeo, wingMaterial);
                     tip.rotation.z = Math.PI / 2;
-                    tip.scale.set(1, 0.55, 0.8);
-                    tip.position.set(side * (tailSpanHalf * 1.8 + 0.4), 0, -10);
+                    tip.scale.set(1, 0.5, 0.75);
+                    tip.position.set(side * (tailSpanHalf + 0.3), 0, -10);
                     tip.castShadow = true;
                     tailWingGroup.add(tip);
                 }
                 planeGroup.add(tailWingGroup);
                 
-                // === VERTICAL STABILIZER (垂直尾翼) ===
-                const vStabGeometry = new THREE.BoxGeometry(1, 4, 3);
-                const vStab = new THREE.Mesh(vStabGeometry, wingMaterial);
-                vStab.position.set(0, 2, -10);
-                vStab.castShadow = true;
-                planeGroup.add(vStab);
+                // === VERTICAL STABILIZER (垂直尾翼) REWORK: 圆角直角三角形 ===
+                (function(){
+                    const chord = 3.2;      // 前后长度 (Z方向)
+                    const height = 4.2;     // 高度 (Y方向)
+                    const r = 0.35;         // 圆角半径
+                    const thickness = 0.18;  // 厚度 (X方向)
+                    const shape = new THREE.Shape();
+                    // 起点：后缘根部 (Z=0,Y=0)
+                    shape.moveTo(0, r);
+                    shape.quadraticCurveTo(0,0, r,0);                     // 底部后角圆角
+                    shape.lineTo(chord - r, 0);
+                    shape.quadraticCurveTo(chord,0, chord - r, r);        // 前下角圆角
+                    shape.lineTo(r, height - r);                          // 斜边到顶点前一点
+                    shape.quadraticCurveTo(0, height, 0, height - r);     // 顶角圆角
+                    shape.closePath();
+                    const extrudeGeo = new THREE.ExtrudeGeometry(shape, { depth: thickness, bevelEnabled:false });
+                    // 旋转: 目前 shape 在 XY 平面，X->Z, Y->Y; 将挤出深度Z映射到X
+                    extrudeGeo.rotateY(Math.PI / 2); // depth 方向变为 +X
+                    // 使厚度中心对齐X=0
+                    extrudeGeo.translate(0, 0, -chord * 0.5); // 将Z中心移至0 (之前X被转到Z)
+                    // 计算包围盒以将根部底边放到 y=0
+                    extrudeGeo.computeBoundingBox();
+                    const bb = extrudeGeo.boundingBox;
+                    const yOffset = -bb.min.y; // 抬到底部贴地
+                    const zCenter = -(bb.min.z + bb.max.z)/2; // 保持居中对齐原来的 -10 位置
+                    extrudeGeo.translate(0, yOffset, zCenter);
+                    const fin = new THREE.Mesh(extrudeGeo, wingMaterial);
+                    fin.position.set(0, 0, -10); // 根部基准位置
+                    fin.castShadow = true;
+                    planeGroup.add(fin);
+                })();
                 
                 // === ENHANCED PROPELLER ASSEMBLY ===
                 // Propeller spinner
