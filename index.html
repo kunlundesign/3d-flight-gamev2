@@ -848,7 +848,8 @@
                 // ===== FINAL SPEC IMPLEMENTATION =====
                 // Base constants
                 const defaults = {
-                    scale: 4.0,           // global scale multiplier for visibility
+                    // Enlarged global scale; previously 4.0
+                    scale: 5.5,           // increase overall visual size
                     chord: 1.0,
                     wingspanW: 12.0,
                     fuselageL: 10.0,
@@ -909,8 +910,10 @@
                 const landingGear = new THREE.Group(); landingGear.name='LandingGear'; fuselage.add(landingGear);
                 const track = 0.35 * C.wingspanW;
                 const axleHeight = 0.22 * L; // distance from origin downward
-                const wheelR = 0.22 * L * 0.55; // approximate
-                const tailWheelR = wheelR * 0.35;
+                // Wheel size tuned: keep diameter < fuselage height for better proportion
+                const fuselageMainH = 1.8; // matches bodyMain Y size before scaling
+                const wheelR = fuselageMainH * 0.42; // radius ~42% fuselage height (diameter ~0.84H)
+                const tailWheelR = wheelR * 0.32;    // slightly smaller tail wheel
                 const wheelGeo = new THREE.CylinderGeometry(wheelR,wheelR,0.3,10);
                 [-1,1].forEach(s=>{ const w=new THREE.Mesh(wheelGeo,mStrut); w.rotation.z=Math.PI/2; w.position.set(s*track/2,-axleHeight,-0.05*L); landingGear.add(w); });
                 const axle = new THREE.Mesh(new THREE.BoxGeometry(track*0.95,0.08,0.25), mStrut); axle.position.set(0,-axleHeight,-0.05*L); landingGear.add(axle);
