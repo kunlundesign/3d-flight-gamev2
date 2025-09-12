@@ -684,6 +684,9 @@
                     // 创建 Mesh 并放置在尾部基准 z=-10
                     const fin = new THREE.Mesh(extrudeGeo, wingMaterial);
                     fin.position.set(0,0,-10);
+                    // 水平翻转（沿Z轴镜像）
+                    fin.scale.z = -1;
+                    fin.updateMatrix();
                     fin.castShadow = true;
                     planeGroup.add(fin);
                 })();
