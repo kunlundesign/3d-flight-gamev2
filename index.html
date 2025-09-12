@@ -232,8 +232,8 @@
                 this.setupLighting();
                 this.createTerrain();
                 this.createClouds();
-                // 使用新的双翼机造型
-                this.createBiplaneAircraftDetailed({ scale:1.05 });
+                // 使用新的双翼机造型（移除缩小覆盖，使用默认放大比例）
+                this.createBiplaneAircraftDetailed();
                 // 新模型包含上翼机枪，无需额外机头炮，如仍需可再次调用 createNoseCannons()
                 this.setupFileUpload();
                 this.setupKeyboardControls();
