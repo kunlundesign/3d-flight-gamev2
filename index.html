@@ -515,16 +515,16 @@
                 
                 // === PREMIUM MATERIALS ===
                 const fuselageMaterial = new THREE.MeshStandardMaterial({ 
-                    color: 0xd0d0d0, // Bright silver
-                    metalness: 0.8,
-                    roughness: 0.2,
+                    color: 0xD3D3D3, // 新机身浅灰
+                    metalness: 0.9,
+                    roughness: 0.35,
                     envMapIntensity: 1.0
                 });
                 
                 const wingMaterial = new THREE.MeshStandardMaterial({ 
-                    color: 0x2d5016, // Dark green wings
-                    metalness: 0.1,
-                    roughness: 0.6
+                    color: 0xE14A32, // 新机翼红橙色
+                    metalness: 0.85,
+                    roughness: 0.45
                 });
                 
                 const glassMaterial = new THREE.MeshStandardMaterial({ 
@@ -538,9 +538,9 @@
                 });
                 
                 const darkMetalMaterial = new THREE.MeshStandardMaterial({
-                    color: 0x404040,
-                    metalness: 0.9,
-                    roughness: 0.3
+                    color: 0x5E5E5E, // 机头 / 整流罩用色
+                    metalness: 0.95,
+                    roughness: 0.4
                 });
                 
                 // === ENHANCED FUSELAGE (机身) ===
@@ -626,9 +626,9 @@
                 // Propeller spinner
                 const spinnerGeometry = new THREE.ConeGeometry(0.8, 1.5, 12);
                 const spinnerMaterial = new THREE.MeshStandardMaterial({ 
-                    color: 0x2c2c2c, 
-                    metalness: 0.8, 
-                    roughness: 0.2 
+                    color: 0x000000, // 螺旋桨锥 黑色
+                    metalness: 0.95, 
+                    roughness: 0.25 
                 });
                 const spinner = new THREE.Mesh(spinnerGeometry, spinnerMaterial);
                 spinner.position.set(0, 0, 12.5);
@@ -638,7 +638,7 @@
                 
                 // Propeller hub
                 const hubGeometry = new THREE.CylinderGeometry(0.6, 0.6, 0.6, 12);
-                const hub = new THREE.Mesh(hubGeometry, darkMetalMaterial);
+                const hub = new THREE.Mesh(hubGeometry, spinnerMaterial); // 黑色金属
                 hub.position.set(0, 0, 11.5);
                 hub.rotation.x = Math.PI / 2;
                 hub.castShadow = true;
@@ -647,9 +647,9 @@
                 // Enhanced propeller blades
                 const propGroup = new THREE.Group();
                 const bladeMaterial = new THREE.MeshStandardMaterial({ 
-                    color: 0x2a1810, // Dark wood brown
-                    metalness: 0.1,
-                    roughness: 0.9
+                    color: 0x000000, // 螺旋桨叶黑色金属
+                    metalness: 0.9,
+                    roughness: 0.35
                 });
                 
                 for (let i = 0; i < 3; i++) {
@@ -833,7 +833,7 @@
                 
                 // === FINAL ASSEMBLY ===
                 planeGroup.position.copy(this.playerPosition);
-                planeGroup.scale.set(1.2, 1.2, 1.2); // Slightly larger for better presence
+                planeGroup.scale.set(1.44, 1.44, 1.44); // 放大1.2倍（在原1.2基础）
                 
                 // Store references
                 this.aircraft = planeGroup;
