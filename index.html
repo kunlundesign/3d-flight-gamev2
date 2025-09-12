@@ -845,225 +845,210 @@
 
             // ===== New Detailed Biplane with Radial Engine & Cockpit Detail =====
             createBiplaneAircraftDetailed(cfg = {}) {
-                // === Spec-Based WWI Biplane Geometry Revamp ===
-                // Ratios: fuselage : span : chord = 10 : 12 : 2.2  (choose scale factor k)
-                const k = 3; // scale factor (can be overridden)
+                // ===== FINAL SPEC IMPLEMENTATION =====
+                // Base constants
                 const defaults = {
-                    scale: 1,
-                    fuselageLen: 10 * k, // 30
-                    wingSpan: 12 * k,    // 36
-                    chord: 2.2 * k,      // 6.6
+                    scale: 4.0,           // global scale multiplier for visibility
+                    chord: 1.0,
+                    wingspanW: 12.0,
+                    fuselageL: 10.0,
                     radialCylCount: 9,
-                    radialRadius: 2.0,
-                    radialCylinderLen: 1.4,
-                    radialCylinderR: 0.45,
-                    radialCylinderTiltDeg: 10,
-                    propBladeCount: 2,
-                    dihedralDeg: 2.5
+                    propBladeCount: 2
                 };
-                const c = Object.assign({}, defaults, cfg);
-                c.wingGap = 0.9 * c.chord;              // vertical distance (surface to surface)
-                c.stagger = 0.3 * c.chord;              // positive forward offset of upper wing
-                const G = new THREE.Group();
-                G.position.copy(this.playerPosition);
+                const C = Object.assign({}, defaults, cfg);
+                const gap = 0.9 * C.chord;
+                const stagger = 0.3 * C.chord; // upper forward
+                const dihedralDeg = 2.5;
 
                 // Materials
-                const mat = (col, r=0.6, m=0.05) => new THREE.MeshStandardMaterial({ color: col, roughness: r, metalness: m });
-                const mWing = mat(0xD6453D, 0.55, 0.04);
-                const mFuse = mat(0xCFCFCF, 0.7, 0.05);
-                const mStrut = mat(0x4A4A4A, 0.6, 0.15);
-                const mPropWood = mat(0xA67C52, 0.5, 0.2);
-                const mPropTip = mat(0xFFE3A0, 0.45, 0.15);
-                const mEngineDark = mat(0x222222, 0.5, 0.4);
-                const mGlass = new THREE.MeshStandardMaterial({ color:0x9fd8ff, transparent:true, opacity:0.45, roughness:0.08, metalness:0 });
-                const mBlack = mat(0x111111,0.5,0.3);
+                const mat = (col, r=0.55, m=0.08)=> new THREE.MeshStandardMaterial({color:col, roughness:r, metalness:m});
+                const mWing = mat(0xD6453D,0.6,0.04);
+                const mFuse = mat(0xCFCFCF,0.7,0.05);
+                const mStrut = mat(0x4A4A4A,0.55,0.15);
+                const mProp = mat(0xA67C52,0.5,0.2);
+                const mPropTip = mat(0xFFE3A0,0.5,0.15);
+                const mEngine = mat(0x222222,0.5,0.35);
+                const mGlass = new THREE.MeshStandardMaterial({color:0x91cfff, transparent:true, opacity:0.45, roughness:0.1, metalness:0});
 
-                // --- Fuselage (simple tapered box chain) ---
-                const fuseGroup = new THREE.Group();
-                const fuselageLen = c.fuselageLen;
-                const fuseMain = new THREE.Mesh(new THREE.BoxGeometry(3.2, 3.4, fuselageLen * 0.55), mFuse);
-                fuseMain.position.z = -fuselageLen * 0.05; // shift slightly back so nose space exists
-                fuseGroup.add(fuseMain);
-                const fuseRear = new THREE.Mesh(new THREE.BoxGeometry(2.4, 2.6, fuselageLen * 0.30), mFuse);
-                fuseRear.position.z = -fuselageLen * 0.55;
-                fuseGroup.add(fuseRear);
-                const tailCone = new THREE.Mesh(new THREE.ConeGeometry(1.2, fuselageLen * 0.15, 12), mFuse);
-                tailCone.rotation.x = Math.PI/2;
-                tailCone.position.z = -fuselageLen * 0.83;
-                fuseGroup.add(tailCone);
-                G.add(fuseGroup);
+                // Root
+                const root = new THREE.Group();
+                root.name = 'Biplane';
+                root.position.copy(this.playerPosition);
 
-                // Origin roughly 30% aft of nose => add nose block forward
-                const noseBlock = new THREE.Mesh(new THREE.CylinderGeometry(2.2,2.4, fuselageLen*0.18, 16), mEngineDark);
-                noseBlock.rotation.x = Math.PI/2;
-                noseBlock.position.z = fuselageLen*0.5 - fuselageLen*0.09; // front
-                G.add(noseBlock);
+                // ---------------- Fuselage (with tapered rear) ----------------
+                const fuselage = new THREE.Group(); fuselage.name = 'Fuselage'; root.add(fuselage);
+                const L = C.fuselageL; // nose tip at +0.3L, tail at -0.7L relative to origin
+                // Front (0 to +0.3L) reserved for NoseGroup
+                // Main mid body (from about -0.25L to +0.25L)
+                const bodyMain = new THREE.Mesh(new THREE.BoxGeometry(1.8,1.8, L*0.50), mFuse);
+                bodyMain.position.z = -0.25 * L + (L*0.50)/2; // center mid
+                fuselage.add(bodyMain);
+                // Two-step taper last 35%: segment A then B
+                const taperStartZ = -0.7*L + 0.35*L; // approximate region start
+                const rearA = new THREE.Mesh(new THREE.BoxGeometry(1.8,1.6, L*0.18), mFuse);
+                rearA.position.z = -0.25*L - (L*0.50)/2 - (L*0.18)/2; // behind main
+                rearA.scale.set(0.65,1.0,0.65);
+                fuselage.add(rearA);
+                const rearB = new THREE.Mesh(new THREE.BoxGeometry(1.8,1.4, L*0.17), mFuse);
+                rearB.position.z = rearA.position.z - (L*0.18)/2 - (L*0.17)/2;
+                rearB.scale.set(0.35,1.0,0.35);
+                fuselage.add(rearB);
 
-                // --- Radial engine cylinders ---
-                const engineGroup = new THREE.Group();
-                const cylTilt = THREE.MathUtils.degToRad(c.radialCylinderTiltDeg);
-                for (let i=0;i<c.radialCylCount;i++){
-                    const ang = (i / c.radialCylCount) * Math.PI * 2;
-                    const cyl = new THREE.Mesh(new THREE.CylinderGeometry(c.radialCylinderR, c.radialCylinderR, c.radialCylinderLen, 10,1,true), mEngineDark);
-                    cyl.rotation.z = Math.PI/2; // lay sideways
-                    cyl.rotation.y = ang;
-                    cyl.rotation.x = cylTilt;
-                    const r = c.radialRadius;
-                    cyl.position.set(Math.cos(ang)*r, Math.sin(ang)*r, noseBlock.position.z - 0.4);
-                    engineGroup.add(cyl);
-                }
-                G.add(engineGroup);
-
-                // --- Propeller + Spinner ---
-                const noseGroup = new THREE.Group();
-                const spinner = new THREE.Mesh(new THREE.ConeGeometry(1.6,1.8,16), mPropWood);
-                spinner.rotation.x = Math.PI/2;
-                noseGroup.add(spinner);
-                const propGroup = new THREE.Group();
-                const bladeLen = 5.2;
-                for (let i=0;i<c.propBladeCount;i++) {
-                    const blade = new THREE.Mesh(new THREE.BoxGeometry(0.5,0.18, bladeLen), mPropWood);
-                    blade.geometry.translate(0,0, bladeLen/2);
-                    blade.rotation.y = (i / c.propBladeCount) * Math.PI * 2;
-                    const tip = new THREE.Mesh(new THREE.BoxGeometry(0.52,0.20, 0.8), mPropTip);
-                    tip.position.z = bladeLen - 0.4;
-                    blade.add(tip);
-                    propGroup.add(blade);
-                }
-                const blur = new THREE.Mesh(new THREE.CircleGeometry(bladeLen*0.95, 32), new THREE.MeshBasicMaterial({color:0xffffff, transparent:true, opacity:0.15}));
-                blur.rotation.x = -Math.PI/2; blur.visible=false; propGroup.add(blur);
-                noseGroup.position.z = noseBlock.position.z + 1.0;
-                propGroup.position.z = 0.4;
-                noseGroup.add(propGroup);
-                this.propeller = propGroup; this.propellerBlurDisc = blur;
-                G.add(noseGroup);
-
-                // --- Wings ---
-                const wingSpanHalf = c.wingSpan * 0.5;
-                const thickness = Math.max(0.08 * c.chord, 0.08 * c.chord);
-                const buildWing = (y, forwardOffset, isUpper) => {
-                    const wingRoot = new THREE.Group();
-                    wingRoot.position.set(0, y, forwardOffset);
-                    const dihedral = THREE.MathUtils.degToRad(c.dihedralDeg) * (isUpper?1:1); // apply to both for subtle symmetry
-                    const halfGeom = new THREE.BoxGeometry(wingSpanHalf, thickness, c.chord);
-                    const left = new THREE.Mesh(halfGeom, mWing); left.position.x = -wingSpanHalf/2; left.rotation.z = dihedral; wingRoot.add(left);
-                    const right = new THREE.Mesh(halfGeom, mWing); right.position.x = wingSpanHalf/2; right.rotation.z = -dihedral; wingRoot.add(right);
-                    // Ailerons (only lower wing per spec minimum)
-                    if(!isUpper){
-                        const aileronSpan = wingSpanHalf * 0.70; // each side ~35% of total span
-                        const ailDepth = c.chord * 0.28;
-                        const ailThickness = thickness * 0.6;
-                        const buildAileron = (sign)=>{
-                            const pivot = new THREE.Group();
-                            const geo = new THREE.BoxGeometry(aileronSpan, ailThickness, ailDepth);
-                            const mesh = new THREE.Mesh(geo, mWing);
-                            mesh.position.z = (c.chord/2 - ailDepth/2);
-                            mesh.position.x = sign * ( (wingSpanHalf - aileronSpan/2) );
-                            pivot.add(mesh);
-                            wingRoot.add(pivot);
-                            if(!this.ctrl) this.ctrl = {};
-                            if(sign<0) this.ctrl.aileronL = pivot; else this.ctrl.aileronR = pivot;
-                        };
-                        buildAileron(-1);
-                        buildAileron(1);
-                    }
-                    G.add(wingRoot);
-                    return wingRoot;
-                };
-                const lowerWing = buildWing(0, 0, false);
-                const upperWing = buildWing(c.wingGap, c.stagger, true);
-
-                // Interplane struts (2 bays each side)
-                const makeStrut = (x,zBase)=>{
-                    const h = c.wingGap;
-                    const s = new THREE.Mesh(new THREE.BoxGeometry(0.6, h, 0.6), mStrut);
-                    s.position.set(x, h/2, zBase + (c.stagger*0.5));
-                    // slight inward lean
-                    s.rotation.z = THREE.MathUtils.degToRad((x>0?-4:4));
-                    G.add(s);
-                };
-                const bayOffsetOuter = wingSpanHalf * 0.85;
-                const bayOffsetInner = wingSpanHalf * 0.45;
-                [bayOffsetInner, bayOffsetOuter].forEach(x=>{ makeStrut(x,0); makeStrut(-x,0); });
-
-                // Cabane struts (fuselage to upper wing center)
-                const cabanePositions = [ [-2,0.2], [2,0.2], [-1.2,-0.8], [1.2,-0.8] ];
-                cabanePositions.forEach(p=>{
-                    const h = c.wingGap * 0.9;
-                    const str = new THREE.Mesh(new THREE.BoxGeometry(0.5,h,0.5), mStrut);
-                    str.position.set(p[0], h/2 + 0.2, p[1] + c.stagger*0.5);
-                    G.add(str);
-                });
-
-                // --- Tailplane, Elevators, Fin, Rudder ---
-                const tailPlaneSpan = c.wingSpan * 0.45;
-                const tailPlaneChord = c.chord * 0.35;
-                const tailY = 0.2;
-                const tailZ = -fuselageLen * 0.75;
-                const tailPlane = new THREE.Mesh(new THREE.BoxGeometry(tailPlaneSpan, thickness*0.7, tailPlaneChord), mWing);
-                tailPlane.position.set(0, tailY, tailZ);
-                G.add(tailPlane);
-                // Elevators (single piece)
-                const elevatorPivot = new THREE.Group();
-                elevatorPivot.position.set(0, tailY, tailZ + (tailPlaneChord/2 - tailPlaneChord*0.18));
-                const elevator = new THREE.Mesh(new THREE.BoxGeometry(tailPlaneSpan*0.9, thickness*0.5, tailPlaneChord*0.25), mWing);
-                elevator.position.z = 0; // pivot at leading edge of elevator piece
-                elevatorPivot.add(elevator);
-                G.add(elevatorPivot);
-                // Fin + Rudder
-                const fin = new THREE.Mesh(new THREE.BoxGeometry(tailPlaneChord*0.55, tailPlaneChord*0.9, thickness*0.7), mWing);
-                fin.position.set(0, tailPlaneChord*0.45, tailZ + tailPlaneChord*0.05);
-                fin.rotation.x = Math.PI/2; // stand vertical (using box dims)
-                G.add(fin);
-                const rudderPivot = new THREE.Group();
-                rudderPivot.position.set(0, tailPlaneChord*0.45, tailZ + tailPlaneChord*0.35);
-                const rudder = new THREE.Mesh(new THREE.BoxGeometry(tailPlaneChord*0.55, tailPlaneChord*0.55, thickness*0.5), mWing);
-                rudder.rotation.x = Math.PI/2;
-                rudderPivot.add(rudder);
-                G.add(rudderPivot);
-
-                // --- Landing Gear ---
-                const gearGroup = new THREE.Group();
-                const wheelDistance = c.wingSpan * 0.35;
-                const wheelRadius = 2.0 * (c.chord / 6.6); // scale with chord
-                const wheelGeo = new THREE.CylinderGeometry(wheelRadius, wheelRadius, 1.2, 12);
-                const buildWheel = (sign)=>{
-                    const w = new THREE.Mesh(wheelGeo, mBlack); w.rotation.z = Math.PI/2; w.position.set(sign*wheelDistance/2, -wheelRadius*0.6, fuselageLen*0.05); gearGroup.add(w); };
-                buildWheel(-1); buildWheel(1);
-                const axle = new THREE.Mesh(new THREE.BoxGeometry(wheelDistance*0.95, 0.4, 0.6), mStrut); axle.position.set(0, -wheelRadius*0.6, fuselageLen*0.05); gearGroup.add(axle);
-                // Forward / rear struts
-                const strut = (x1,y1,z1,x2,y2,z2)=>{ const dx=x2-x1,dy=y2-y1,dz=z2-z1; const len=Math.sqrt(dx*dx+dy*dy+dz*dz); const m=new THREE.Mesh(new THREE.CylinderGeometry(0.35,0.35,len,6), mStrut); m.position.set((x1+x2)/2,(y1+y2)/2,(z1+z2)/2); m.lookAt(x2,y2,z2); m.rotateX(Math.PI/2); gearGroup.add(m); };
-                const yTop = 0.2; const zAttach = fuselageLen*0.02;
-                [-1,1].forEach(sign=>{ strut(sign*wheelDistance/2, -wheelRadius*0.6, fuselageLen*0.05, sign*1.5, yTop, zAttach); });
-                // Tail skid
-                const tailSkid = new THREE.Mesh(new THREE.CylinderGeometry(0.25,0.25,3,6), mStrut); tailSkid.rotation.z = Math.PI/2; tailSkid.position.set(0,-0.9, -fuselageLen*0.78); gearGroup.add(tailSkid);
-                G.add(gearGroup);
-
-                // --- Cockpit (simple) ---
-                const cockpitCoaming = new THREE.Mesh(new THREE.TorusGeometry(2.1,0.25,10,24), mBlack);
-                cockpitCoaming.rotation.x = Math.PI/2;
-                cockpitCoaming.position.set(0, 1.6, -fuselageLen*0.08);
-                G.add(cockpitCoaming);
-                const windscreen = new THREE.Mesh(new THREE.PlaneGeometry(2.6,1.4), mGlass);
-                windscreen.position.set(0, 2.0, -fuselageLen*0.02);
+                // Cockpit group
+                const cockpit = new THREE.Group(); cockpit.name='Cockpit'; fuselage.add(cockpit);
+                // Cockpit placement: just aft of upper wing TE later (we place after wings created)
+                const rim = new THREE.Mesh(new THREE.TorusGeometry(0.6,0.05,8,24), mat(0x222222,0.5,0.3));
+                rim.rotation.x = Math.PI/2;
+                cockpit.add(rim);
+                const windscreen = new THREE.Mesh(new THREE.PlaneGeometry(0.9,0.45), mGlass);
                 windscreen.rotation.x = -Math.PI/10;
-                G.add(windscreen);
+                windscreen.position.set(0,0.25,0.15);
+                cockpit.add(windscreen);
 
-                // --- Guns (simplified, top fuselage) ---
+                // Landing Gear
+                const landingGear = new THREE.Group(); landingGear.name='LandingGear'; fuselage.add(landingGear);
+                const track = 0.35 * C.wingspanW;
+                const axleHeight = 0.22 * L; // distance from origin downward
+                const wheelR = 0.22 * L * 0.55; // approximate
+                const tailWheelR = wheelR * 0.35;
+                const wheelGeo = new THREE.CylinderGeometry(wheelR,wheelR,0.3,10);
+                [-1,1].forEach(s=>{ const w=new THREE.Mesh(wheelGeo,mStrut); w.rotation.z=Math.PI/2; w.position.set(s*track/2,-axleHeight,-0.05*L); landingGear.add(w); });
+                const axle = new THREE.Mesh(new THREE.BoxGeometry(track*0.95,0.08,0.25), mStrut); axle.position.set(0,-axleHeight,-0.05*L); landingGear.add(axle);
+                // Gear struts
+                const mkStrut=(ax,ay,az,bx,by,bz)=>{ const dx=bx-ax,dy=by-ay,dz=bz-az; const len=Math.sqrt(dx*dx+dy*dy+dz*dz); const cyl=new THREE.Mesh(new THREE.CylinderGeometry(0.05*C.chord,0.05*C.chord,len,6), mStrut); cyl.position.set((ax+bx)/2,(ay+by)/2,(az+bz)/2); cyl.lookAt(bx,by,bz); cyl.rotateX(Math.PI/2); landingGear.add(cyl); };
+                [-1,1].forEach(s=>{ mkStrut(s*track/2,-axleHeight,-0.05*L, s*0.6, -0.3, -0.02*L); });
+                // Tail skid / wheel
+                const tailWheel = new THREE.Mesh(new THREE.CylinderGeometry(tailWheelR,tailWheelR,0.18,8), mStrut); tailWheel.rotation.z = Math.PI/2; tailWheel.position.set(0,-tailWheelR-0.05, rearB.position.z - (L*0.05)); landingGear.add(tailWheel);
+
+                // Cabane Struts group
+                const cabaneStruts = new THREE.Group(); cabaneStruts.name='CabaneStruts'; fuselage.add(cabaneStruts);
+
+                // ---------------- Nose Group ----------------
+                const noseGroup = new THREE.Group(); noseGroup.name='NoseGroup'; root.add(noseGroup);
+                const noseLen = 0.2 * L;
+                // EngineRadial
+                const engineRadial = new THREE.Group(); engineRadial.name='EngineRadial'; noseGroup.add(engineRadial);
+                const cylR = 0.18; const cylLen = 0.35; const ringRadius = 0.55;
+                for(let i=0;i<C.radialCylCount;i++){
+                    const a = i/C.radialCylCount * Math.PI*2;
+                    const cyl = new THREE.Mesh(new THREE.CylinderGeometry(cylR,cylR,cylLen,8,1,true), mEngine);
+                    cyl.rotation.z = Math.PI/2; cyl.rotation.y = a; cyl.position.set(Math.cos(a)*ringRadius, Math.sin(a)*ringRadius, 0);
+                    engineRadial.add(cyl);
+                }
+                // Spinner
+                const spinner = new THREE.Mesh(new THREE.ConeGeometry(0.55, noseLen*0.55, 14), mProp); spinner.rotation.x = Math.PI/2; spinner.name='Spinner'; noseGroup.add(spinner);
+                // Propeller
+                const propeller = new THREE.Group(); propeller.name='Propeller'; noseGroup.add(propeller);
+                const propRadius = 0.35 * C.chord; const bladeLen = propRadius*2;
+                for(let i=0;i<C.propBladeCount;i++){
+                    const blade = new THREE.Mesh(new THREE.BoxGeometry(0.07,0.02,bladeLen), mProp);
+                    blade.geometry.translate(0,0, bladeLen/2);
+                    blade.rotation.y = i * Math.PI * 2 / C.propBladeCount;
+                    const tip = new THREE.Mesh(new THREE.BoxGeometry(0.08,0.022,0.25), mPropTip); tip.position.z = bladeLen - 0.125; blade.add(tip);
+                    propeller.add(blade);
+                }
+                const blur = new THREE.Mesh(new THREE.CircleGeometry(propRadius*1.05, 20), new THREE.MeshBasicMaterial({color:0xffffff, transparent:true, opacity:0.14}));
+                blur.rotation.x = -Math.PI/2; blur.visible=false; propeller.add(blur); this.propellerBlurDisc = blur;
+                this.propeller = propeller;
+                // Position nose group at front (nose tip at +0.3L): we place spinner tip at +0.3L
+                noseGroup.position.z = 0.3 * L - noseLen*0.35;
+                propeller.position.z = 0.0;
+                engineRadial.position.z = -noseLen*0.25;
+
+                // ---------------- Wings ----------------
+                const upperWing = new THREE.Group(); upperWing.name='UpperWing'; root.add(upperWing);
+                const lowerWing = new THREE.Group(); lowerWing.name='LowerWing'; root.add(lowerWing);
+                // Lower wing baseline at y=0, z=0
+                lowerWing.position.set(0,0,0);
+                upperWing.position.set(0, gap, -stagger);
+                const halfSpan = C.wingspanW * 0.5;
+                const wingThickness = 0.09 * C.chord;
+                const tipRadius = 0.15 * C.chord;
+                const makeHalfWing = (name, sign, parent, dihedral)=>{
+                    const grp = new THREE.Group(); grp.name = name; parent.add(grp);
+                    grp.rotation.z = THREE.MathUtils.degToRad(sign>0? -dihedral : dihedral);
+                    // box minus tip segment
+                    const spanWithoutTip = halfSpan - tipRadius;
+                    const main = new THREE.Mesh(new THREE.BoxGeometry(spanWithoutTip, wingThickness, C.chord), mWing);
+                    main.position.x = sign * (spanWithoutTip/2);
+                    grp.add(main);
+                    // tip (cylinder sideways)
+                    const tip = new THREE.Mesh(new THREE.CylinderGeometry(tipRadius, tipRadius, C.chord, 10,1,true), mWing);
+                    tip.rotation.z = Math.PI/2; tip.position.x = sign * (spanWithoutTip + tipRadius*0.02); // slight adjust
+                    grp.add(tip);
+                    return grp;
+                };
+                const lowerHalfL = makeHalfWing('LowerHalfL', -1, lowerWing, dihedralDeg);
+                const lowerHalfR = makeHalfWing('LowerHalfR',  1, lowerWing, dihedralDeg);
+                const upperHalfL = makeHalfWing('UpperHalfL', -1, upperWing, 0); // flat upper
+                const upperHalfR = makeHalfWing('UpperHalfR',  1, upperWing, 0);
+
+                // Ailerons (separate meshes, pivot at leading edge)
+                const aileronSpan = halfSpan * 0.65;
+                const aileronDepth = 0.28 * C.chord;
+                const aileronThickness = wingThickness * 0.6;
+                const buildAileron = (name, sign)=>{
+                    const pivot = new THREE.Group(); pivot.name = name; lowerWing.add(pivot);
+                    pivot.position.set(sign*(halfSpan - aileronSpan/2 - tipRadius*0.2), 0, (C.chord/2 - aileronDepth));
+                    const geo = new THREE.BoxGeometry(aileronSpan, aileronThickness, aileronDepth);
+                    // translate so leading edge at pivot (front 5%) in X unaffected, we pivot around its x-axis so no translate needed except maybe slight
+                    const mesh = new THREE.Mesh(geo, mWing);
+                    mesh.position.set(0,0, aileronDepth/2); // pivot at leading edge (front)
+                    pivot.add(mesh);
+                    return pivot;
+                };
+                const aileronL = buildAileron('AileronL', -1);
+                const aileronR = buildAileron('AileronR',  1);
+
+                // Tailplane + Elevator
+                const tailplane = new THREE.Group(); tailplane.name='Tailplane'; root.add(tailplane);
+                const tailSpan = 0.45 * C.wingspanW;
+                const tailChord = 0.35 * C.chord;
+                tailplane.position.set(0, -0.05, -0.55*L); // near tapered section
+                const tailMain = new THREE.Mesh(new THREE.BoxGeometry(tailSpan, wingThickness*0.7, tailChord), mWing); tailplane.add(tailMain);
+                const elevatorPivot = new THREE.Group(); elevatorPivot.name='Elevator'; tailplane.add(elevatorPivot);
+                elevatorPivot.position.set(0,0, tailChord*0.5 - tailChord*0.25); // leading edge of elevator piece
+                const elevator = new THREE.Mesh(new THREE.BoxGeometry(tailSpan*0.9, wingThickness*0.5, tailChord*0.25), mWing); elevator.position.z = (tailChord*0.25)/2; elevatorPivot.add(elevator);
+
+                // Fin + Rudder
+                const fin = new THREE.Group(); fin.name='Fin'; root.add(fin);
+                fin.position.set(0,0.0, tailplane.position.z + tailChord*0.05);
+                const finHeight = 0.28 * L;
+                const finSurf = new THREE.Mesh(new THREE.BoxGeometry(tailChord*0.55, finHeight, wingThickness*0.6), mWing); finSurf.position.y = finHeight/2; fin.add(finSurf);
+                const rudderPivot = new THREE.Group(); rudderPivot.name='Rudder'; fin.add(rudderPivot);
+                rudderPivot.position.set(0, finHeight*0.4, tailChord*0.2);
+                const rudder = new THREE.Mesh(new THREE.BoxGeometry(tailChord*0.55, finHeight*0.55, wingThickness*0.5), mWing); rudder.position.y = (finHeight*0.55)/2; rudder.position.z = wingThickness*0.25; rudderPivot.add(rudder);
+
+                // Interplane struts (two bays per side at 22% & 70% of half-span)
+                const addInterStrut = (xFrac)=>{ const x = halfSpan * xFrac; [ -1, 1 ].forEach(sign=>{ const sx=sign*x; const h=gap; const str=new THREE.Mesh(new THREE.BoxGeometry(0.08*C.chord,h,0.05*C.chord), mStrut); str.position.set(sx, h/2, -stagger*0.5); // cant outward
+                    str.rotation.z = THREE.MathUtils.degToRad(sign>0? -7:7); root.add(str); }); };
+                addInterStrut(0.22); addInterStrut(0.70);
+                // Cabane struts (2 pairs)
+                const cabanePairs=[[-0.6,0.1],[0.6,0.1],[-0.4,-0.2],[0.4,-0.2]];
+                cabanePairs.forEach(p=>{ const h=gap*0.9; const s=new THREE.Mesh(new THREE.BoxGeometry(0.06*C.chord,h*0.9,0.05*C.chord), mStrut); s.position.set(p[0], h*0.45, -0.05 + (-stagger*0.5)); cabaneStruts.add(s); });
+
+                // Cockpit final placement (upper wing trailing edge ~ upperWing z + chord/2)
+                const upperTrailingZ = upperWing.position.z + C.chord/2; // chord along Z
+                cockpit.position.set(0, gap*0.35, upperTrailingZ + 0.12*C.chord);
+
+                // Guns (reuse gunBarrels for firing). Mount on top fuselage ahead of cockpit
                 this.gunBarrels = [];
-                const gunGeo = new THREE.CylinderGeometry(0.25,0.25, 3.4, 10);
-                [-0.6,0.6].forEach(x=>{ const g = new THREE.Mesh(gunGeo, mBlack); g.rotation.x = Math.PI/2; g.position.set(x, 1.5, fuselageLen*0.18); G.add(g); this.gunBarrels.push(g); });
+                const gunGeo = new THREE.CylinderGeometry(0.07,0.07, 1.2, 8);
+                [-0.25,0.25].forEach(x=>{ const g=new THREE.Mesh(gunGeo, mEngine); g.rotation.x = Math.PI/2; g.position.set(x, cockpit.position.y+0.15, cockpit.position.z - 0.35*C.chord); root.add(g); this.gunBarrels.push(g); });
 
-                // Store control surface references
-                this.ctrl = this.ctrl || {};
-                this.ctrl.elevator = elevatorPivot;
-                this.ctrl.rudder = rudderPivot;
+                // Assign control surface references
+                this.ctrl = {
+                    aileronL: aileronL,
+                    aileronR: aileronR,
+                    elevator: elevatorPivot,
+                    rudder: rudderPivot
+                };
 
-                // Shadow flags
-                G.traverse(o=>{ if(o.isMesh){ o.castShadow=true; if(o.material===mFuse||o.material===mWing) o.receiveShadow=true; }});
+                // Shadows
+                root.traverse(o=>{ if(o.isMesh){ o.castShadow=true; if(o.material===mFuse||o.material===mWing) o.receiveShadow=true; }});
 
-                G.scale.setScalar(c.scale);
-                this.aircraft = G; this.scene.add(G);
+                root.scale.setScalar(C.scale);
+                this.aircraft = root; this.scene.add(root);
             }
 
             // ================= Nose Cannon System =================
@@ -2463,24 +2448,31 @@
             }
 
             updateControlSurfaces(deltaTime){
-                if(!this.ctrl) return;
+                if(!this.aircraft) return;
+                // Ensure refs
+                if(!this.ctrl){
+                    this.ctrl = {
+                        aileronL: this.aircraft.getObjectByName('AileronL'),
+                        aileronR: this.aircraft.getObjectByName('AileronR'),
+                        elevator: this.aircraft.getObjectByName('Elevator'),
+                        rudder: this.aircraft.getObjectByName('Rudder')
+                    };
+                }
                 const keys = this.inputState.keys;
-                // Desired command values based on instantaneous key state
-                let rollCmd = 0; if(keys.has('KeyQ')) rollCmd = -1; else if(keys.has('KeyE')) rollCmd = 1;
-                let pitchCmd = 0; if(keys.has('KeyW')||keys.has('ArrowUp')) pitchCmd = 1; else if(keys.has('KeyS')||keys.has('ArrowDown')) pitchCmd = -1;
-                let yawCmd = 0; if(keys.has('KeyA')||keys.has('ArrowLeft')) yawCmd = 1; else if(keys.has('KeyD')||keys.has('ArrowRight')) yawCmd = -1;
-                // Smoothing state
-                if(!this.surfaceAnimState){ this.surfaceAnimState = { aileron:0, elevator:0, rudder:0 }; }
-                const lerp = (a,b,t)=> a + (b-a)*t;
-                const aileronMax = THREE.MathUtils.degToRad(15);
-                const elevatorMax = THREE.MathUtils.degToRad(15);
-                const rudderMax = THREE.MathUtils.degToRad(20);
-                this.surfaceAnimState.aileron = lerp(this.surfaceAnimState.aileron, rollCmd * aileronMax, Math.min(1, deltaTime*8));
-                this.surfaceAnimState.elevator = lerp(this.surfaceAnimState.elevator, pitchCmd * elevatorMax, Math.min(1, deltaTime*6));
-                this.surfaceAnimState.rudder = lerp(this.surfaceAnimState.rudder, yawCmd * rudderMax, Math.min(1, deltaTime*6));
+                let rollCmd = 0; if(keys.has('KeyQ')) rollCmd=-1; else if(keys.has('KeyE')) rollCmd=1;
+                let pitchCmd = 0; if(keys.has('KeyW')||keys.has('ArrowUp')) pitchCmd=1; else if(keys.has('KeyS')||keys.has('ArrowDown')) pitchCmd=-1;
+                let yawCmd = 0; if(keys.has('KeyA')||keys.has('ArrowLeft')) yawCmd=1; else if(keys.has('KeyD')||keys.has('ArrowRight')) yawCmd=-1;
+                if(!this.surfaceAnimState){ this.surfaceAnimState={aileron:0,elevator:0,rudder:0}; }
+                const lerp=(a,b,t)=>a+(b-a)*t;
+                const aMax=THREE.MathUtils.degToRad(15);
+                const eMax=THREE.MathUtils.degToRad(15);
+                const rMax=THREE.MathUtils.degToRad(20);
+                this.surfaceAnimState.aileron = lerp(this.surfaceAnimState.aileron, rollCmd*aMax, Math.min(1,deltaTime*10));
+                this.surfaceAnimState.elevator = lerp(this.surfaceAnimState.elevator, pitchCmd*eMax, Math.min(1,deltaTime*8));
+                this.surfaceAnimState.rudder = lerp(this.surfaceAnimState.rudder, yawCmd*rMax, Math.min(1,deltaTime*8));
                 if(this.ctrl.aileronL) this.ctrl.aileronL.rotation.x = this.surfaceAnimState.aileron;
                 if(this.ctrl.aileronR) this.ctrl.aileronR.rotation.x = -this.surfaceAnimState.aileron;
-                if(this.ctrl.elevator) this.ctrl.elevator.rotation.x = -this.surfaceAnimState.elevator; // nose up => elevator up
+                if(this.ctrl.elevator) this.ctrl.elevator.rotation.x = this.surfaceAnimState.elevator; // positive pitchCmd => elevator up
                 if(this.ctrl.rudder) this.ctrl.rudder.rotation.y = this.surfaceAnimState.rudder;
             }
 
