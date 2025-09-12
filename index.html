@@ -123,10 +123,80 @@
         .notification-error {
             border-left: 4px solid #f44336;
         }
+
+        /* 场景切换面板 */
+        #sceneSwitcher {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            z-index: 1200;
+            background: rgba(0,0,0,0.65);
+            padding: 10px 12px;
+            border-radius: 10px;
+            display: flex;
+            gap: 6px;
+            backdrop-filter: blur(4px);
+            box-shadow: 0 0 8px rgba(0,0,0,0.4);
+        }
+        #sceneSwitcher button {
+            cursor: pointer;
+            border: 1px solid rgba(255,255,255,0.25);
+            background: rgba(255,255,255,0.08);
+            color: #fff;
+            padding: 6px 10px;
+            font-size: 12px;
+            border-radius: 6px;
+            letter-spacing: 1px;
+            transition: background .25s, transform .15s, border-color .25s;
+        }
+        #sceneSwitcher button:hover { background: rgba(255,255,255,0.18); }
+        #sceneSwitcher button:active { transform: scale(.9); }
+        #sceneSwitcher button.active { background: linear-gradient(135deg,#3fa9ff,#1e62d0); border-color:#6fc3ff; }
+
+        /* ===== Scoreboard & Name Prompt ===== */
+        #scoreboardPanel {
+            position: fixed; top: 10px; right: 10px; z-index: 1000;
+            background: rgba(0,0,0,0.55); backdrop-filter: blur(6px);
+            padding: 10px 14px; border:1px solid rgba(255,255,255,0.15); border-radius:10px; color:#fff;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen;
+            width: 240px; max-height: 420px; overflow:auto; box-shadow:0 4px 14px rgba(0,0,0,0.4);
+        }
+        #scoreboardPanel h3 { margin:0 0 6px; font-size:15px; letter-spacing:0.5px; display:flex; align-items:center; justify-content:space-between; }
+        #scoreboardPanel table { width:100%; border-collapse: collapse; font-size:12px; }
+        #scoreboardPanel th, #scoreboardPanel td { text-align:left; padding:2px 4px; }
+        #scoreboardPanel th { position: sticky; top:0; background: rgba(255,255,255,0.12); backdrop-filter: blur(2px); }
+        #scoreboardPanel tr.highlight { background: rgba(255,255,255,0.15); }
+        #scoreboardPanel .exportBtn { margin-top:6px; width:100%; background:#2d6be8; border:none; color:#fff; padding:6px 0; border-radius:6px; cursor:pointer; font-size:12px; }
+        #scoreboardPanel .exportBtn:hover { background:#4782f5; }
+        #playerNameDisplay { font-size:12px; margin-top:4px; color:#8fd1ff; }
+        #namePromptOverlay { position:fixed; inset:0; background:rgba(0,0,0,0.72); display:flex; align-items:center; justify-content:center; z-index:2000; }
+        #namePromptBox { background:#12161c; padding:26px 32px 32px; border-radius:14px; border:1px solid #2c343d; width:340px; color:#f0f4f8; box-shadow:0 10px 40px -8px rgba(0,0,0,0.7); font-family: system-ui; }
+        #namePromptBox h2 { margin:0 0 14px; font-size:18px; letter-spacing:0.5px; }
+        #namePromptBox input { width:100%; padding:10px 12px; background:#1d242c; border:1px solid #3a4652; border-radius:8px; color:#fff; font-size:14px; outline:none; }
+        #namePromptBox input:focus { border-color:#5d9dff; box-shadow:0 0 0 2px rgba(93,157,255,0.25); }
+        #namePromptBox button { margin-top:16px; width:100%; background:linear-gradient(135deg,#3498ff,#006bff); color:#fff; border:none; padding:11px 0; border-radius:9px; font-size:14px; cursor:pointer; font-weight:600; letter-spacing:0.5px; }
+        #namePromptBox button:hover { filter:brightness(1.1); }
+        #namePromptBox .note { font-size:12px; opacity:0.7; margin-top:10px; line-height:1.5; }
+        /* Session real-time stats HUD */
+        #hudStats {
+            position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
+            background: rgba(0,0,0,0.45); padding:6px 14px; border:1px solid rgba(255,255,255,0.18);
+            border-radius: 14px; color:#fff; font-size:13px; font-family: system-ui, Arial;
+            letter-spacing: .5px; display:flex; gap:16px; align-items:center; z-index:1300;
+            backdrop-filter: blur(4px);
+        }
+        #hudStats span.label { opacity:0.7; margin-right:4px; font-size:11px; text-transform:uppercase; }
+        #hudStats .value { font-weight:600; color:#ffd560; }
+        #hudStats .total { color:#7dff91; }
     </style>
 </head>
 <body>
     <div id="gameContainer">
+        <div id="hudStats" style="display:none;">
+            <div><span class="label">Tanks</span><span id="hudTankKills" class="value">0</span></div>
+            <div><span class="label">Ships</span><span id="hudShipKills" class="value">0</span></div>
+            <div><span class="label">Total</span><span id="hudTotalKills" class="value total">0</span></div>
+        </div>
         <div id="loadingScreen">
             <div class="loading-text">SKY WARRIORS</div>
             <div class="progress-bar">
@@ -202,16 +272,16 @@
                 this.terrain = [];
                 this.clouds = [];
                 // === Environment configuration ===
-                this.environmentConfig = {
-                    treeDensityMultiplier: 2.8, // increased density
-                    rockCount: 0,               // removed rocks
-                    grassPatchCount: 180,
-                    bushClusterCount: 70,
-                    birdFlocks: 0,              // removed bird flocks
-                    soilPatchCount: 120
-                };
+                // === Scene variant system ===
+                // Supported: 'default' | 'snow' | 'desert' | 'ocean'
+                this.sceneType = 'default';
+                // Try read hash (#snow / #desert / #ocean) for quick switching
+                const hash = window.location.hash.replace('#','').toLowerCase();
+                if(['snow','desert','ocean','default'].includes(hash)) this.sceneType = hash || 'default';
+                this.environmentConfig = this.getEnvironmentConfig(this.sceneType);
                 // === Combat targets ===
                 this.tanks = []; // 静态坦克目标 { mesh, alive, radius }
+                this.warships = []; // 海上战舰 { mesh, alive, radius }
                 // Raycaster for ground height sampling
                 this.raycaster = new THREE.Raycaster();
                 // --- Weapon system state (nose cannons) ---
@@ -223,6 +293,16 @@
                 this.gunBarrels = [];           // 炮口引用
                 this.tempVec = new THREE.Vector3();
                 this.forwardVec = new THREE.Vector3(0,0,1);
+                // === Scoreboard & player identity ===
+                this.playerName = null;
+                this.scoreData = { players: {} }; // { name: { tank:0, ship:0, total:0, last:timestamp } }
+                this.localStorageKey = 'skywarriors_scores_v1';
+                // Session real-time counters (not persisted across reload)
+                this.sessionKills = { tank:0, ship:0 };
+                this.ensurePlayerName();
+                this.loadScores();
+                this.registerPlayerIfNeeded();
+                this.updateScoreboardUI();
                 
                 this.init();
             }
@@ -237,6 +317,7 @@
                 this.setupFileUpload();
                 this.setupKeyboardControls();
                 this.setupMouseControls(); // 鼠标射击
+                this.setupSceneSwitcher(); // 场景切换UI
                 this.hideLoadingScreen();
                 this.gameLoop();
             }
@@ -244,7 +325,15 @@
             setupScene() {
                 // Scene
                 this.scene = new THREE.Scene();
-                this.scene.fog = new THREE.Fog(0x87CEEB, 100, 2000);
+                // Fog / background by scene type
+                const fogColors = {
+                    default: 0x87CEEB,
+                    snow: 0xdbe9f5,
+                    desert: 0xe2c27b,
+                    ocean: 0x6fb2ff
+                };
+                const fogColor = fogColors[this.sceneType] || 0x87CEEB;
+                this.scene.fog = new THREE.Fog(fogColor, 100, 2000);
                 
                 // Camera
                 this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 10000);
@@ -256,7 +345,7 @@
                     alpha: true
                 });
                 this.renderer.setSize(window.innerWidth, window.innerHeight);
-                this.renderer.setClearColor(0x87CEEB, 1);
+                this.renderer.setClearColor(fogColor, 1);
                 this.renderer.shadowMap.enabled = true;
                 this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
                 
@@ -324,12 +413,13 @@
             }
 
             createTerrain() {
-                // Ground plane - 更绿更真实的草地颜色
+                // Ground plane base
                 const groundGeometry = new THREE.PlaneGeometry(8000, 8000, 150, 150);
-                const groundMaterial = new THREE.MeshLambertMaterial({ 
-                    color: 0x5D8A3A, // 更鲜艳的草绿色，符合自然环境
-                    wireframe: false
-                });
+                let groundColor = 0x5D8A3A; // default grass
+                if (this.sceneType === 'snow') groundColor = 0xF2F6F9;
+                else if (this.sceneType === 'desert') groundColor = 0xD9C190;
+                else if (this.sceneType === 'ocean') groundColor = 0x1b4f8a; // seabed (deep)
+                const groundMaterial = new THREE.MeshLambertMaterial({ color: groundColor, wireframe: false });
                 
                 // Add some height variation to the ground
                 const vertices = groundGeometry.attributes.position.array;
@@ -347,26 +437,138 @@
                 // 保存地面引用用于高度采样
                 this.ground = ground;
                 
-                // 创建多样化美丽的山脉系统
-                this.createMountainRanges();
+                if (this.sceneType === 'snow') {
+                    this.createSnowMountains();
+                    this.createConiferForests();
+                    // Frozen lakes (reuse lakes with pale blue)
+                    this.createLakes(0xbdd9f2, true);
+                } else if (this.sceneType === 'desert') {
+                    this.createDesertDunes();
+                    this.createPyramids();
+                    this.createDesertPlants();
+                } else if (this.sceneType === 'ocean') {
+                    this.createOceanSurface();
+                    this.createSmallIslands();
+                    this.createWarships(6);
+                } else {
+                    // default
+                    this.createMountainRanges();
+                    this.createTrees();
+                    this.createLakes();
+                    this.createSoilPatches(this.environmentConfig.soilPatchCount);
+                    if (this.environmentConfig.rockCount > 0) this.createRocks(this.environmentConfig.rockCount);
+                    this.createGrassPatches(this.environmentConfig.grassPatchCount);
+                    for (let i=0;i<this.environmentConfig.bushClusterCount;i++) {
+                        this.createBushCluster((Math.random()-0.5)*6500,(Math.random()-0.5)*6500,6+Math.random()*8);
+                    }
+                    if (this.environmentConfig.birdFlocks > 0) {
+                        for (let i=0;i<this.environmentConfig.birdFlocks;i++) this.createBirdFlock();
+                    }
+                }
+                // Tanks only in non-ocean scene; warships already handled in ocean branch
+                if (this.sceneType !== 'ocean') this.createTanks(30);
+            }
 
-                // 创建自然环境元素
-                this.createTrees();
-                // 改为创建湖泊系统（移除河流和公路）
-                this.createLakes();
-                // 裸露土地斑块
-                this.createSoilPatches(this.environmentConfig.soilPatchCount);
-                // 岩石 / 草丛 / 灌木 / 鸟群
-                if (this.environmentConfig.rockCount > 0) this.createRocks(this.environmentConfig.rockCount);
-                this.createGrassPatches(this.environmentConfig.grassPatchCount);
-                for (let i=0;i<this.environmentConfig.bushClusterCount;i++) {
-                    this.createBushCluster((Math.random()-0.5)*6500,(Math.random()-0.5)*6500,6+Math.random()*8);
+            getEnvironmentConfig(type){
+                switch(type){
+                    case 'snow':
+                        return { treeDensityMultiplier: 1.8, rockCount: 10, grassPatchCount: 40, bushClusterCount: 20, birdFlocks:0, soilPatchCount:20 };
+                    case 'desert':
+                        return { treeDensityMultiplier: 0.4, rockCount: 5, grassPatchCount: 0, bushClusterCount: 5, birdFlocks:0, soilPatchCount:10 };
+                    case 'ocean':
+                        return { treeDensityMultiplier: 0, rockCount: 0, grassPatchCount: 0, bushClusterCount: 0, birdFlocks:0, soilPatchCount:0 };
+                    default:
+                        return { treeDensityMultiplier: 2.8, rockCount: 0, grassPatchCount: 180, bushClusterCount: 70, birdFlocks:0, soilPatchCount:120 };
                 }
-                if (this.environmentConfig.birdFlocks > 0) {
-                    for (let i=0;i<this.environmentConfig.birdFlocks;i++) this.createBirdFlock();
+            }
+
+            // ===== Snow Scene Helpers =====
+            createSnowMountains(){
+                this.createMountainRange(-2500,-1500,7,'high',0xd8dfe6);
+                this.createMountainRange(2600,2100,6,'high',0xcfd8de);
+                for(let i=0;i<20;i++) this.createSingleMountain((Math.random()-0.5)*7000,(Math.random()-0.5)*7000,'random',0xe0e7ec);
+            }
+            createConiferForests(){
+                for(let i=0;i<140;i++) this.createTree((Math.random()-0.5)*6500,(Math.random()-0.5)*6500,'pine');
+            }
+
+            // ===== Desert Scene Helpers =====
+            createDesertDunes(){
+                // gentle height noise already added; add some dune ridges as low hills
+                for(let i=0;i<40;i++){
+                    const geo = new THREE.ConeGeometry(120+Math.random()*180, 30+Math.random()*25, 12);
+                    geo.scale(2.5,0.4,1.2);
+                    const mat = new THREE.MeshLambertMaterial({ color: 0xE3D2A1 });
+                    const m = new THREE.Mesh(geo, mat);
+                    m.position.set((Math.random()-0.5)*7000,-35,(Math.random()-0.5)*7000);
+                    m.rotation.y = Math.random()*Math.PI;
+                    m.castShadow = true; m.receiveShadow = true;
+                    this.scene.add(m);
                 }
-                // 放置静态坦克目标（数量增加）
-                this.createTanks(30);
+            }
+            createPyramids(){
+                const pyramidMat = new THREE.MeshLambertMaterial({ color: 0xC9B065 });
+                for(let i=0;i<5;i++){
+                    const size = 200 + Math.random()*160;
+                    const geo = new THREE.ConeGeometry(size/2, size/1.2, 4);
+                    const p = new THREE.Mesh(geo, pyramidMat);
+                    p.rotation.y = Math.PI/4;
+                    p.position.set((Math.random()-0.5)*6000, -50 + size/2.4, (Math.random()-0.5)*6000);
+                    p.castShadow = true; p.receiveShadow = true;
+                    this.scene.add(p);
+                }
+            }
+            createDesertPlants(){
+                // Populus euphratica (胡杨) simplified tall trunk + sparse crown
+                for(let i=0;i<60;i++){
+                    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.7,18,6), new THREE.MeshLambertMaterial({ color:0x8b5a2b }));
+                    const crown = new THREE.Mesh(new THREE.SphereGeometry(5,8,6), new THREE.MeshLambertMaterial({ color:0xd4c98a }));
+                    crown.position.y = 10;
+                    const g = new THREE.Group(); g.add(trunk); g.add(crown);
+                    g.position.set((Math.random()-0.5)*7000,-50,(Math.random()-0.5)*7000);
+                    this.scene.add(g);
+                }
+                // Cactus
+                for(let i=0;i<120;i++){
+                    const h = 6 + Math.random()*10;
+                    const main = new THREE.Mesh(new THREE.CylinderGeometry(0.7,0.9,h,6), new THREE.MeshLambertMaterial({ color:0x2f6f3b }));
+                    const group = new THREE.Group(); group.add(main);
+                    if(Math.random()>0.5){
+                        const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.4,0.5, h*0.5,6), main.material);
+                        arm.position.y = h*0.4; arm.position.x = 0.9; arm.rotation.z = Math.PI/10;
+                        group.add(arm);
+                    }
+                    group.position.set((Math.random()-0.5)*7000,-50,(Math.random()-0.5)*7000);
+                    this.scene.add(group);
+                }
+                // Sea-buckthorn (沙棘) as low orange shrubs
+                for(let i=0;i<160;i++){
+                    const r = 1.5 + Math.random()*2.5;
+                    const shrub = new THREE.Mesh(new THREE.SphereGeometry(r,8,6), new THREE.MeshLambertMaterial({ color:0xd9922e }));
+                    shrub.position.set((Math.random()-0.5)*7200,-50 + r*0.4,(Math.random()-0.5)*7200);
+                    shrub.castShadow = true; this.scene.add(shrub);
+                }
+            }
+
+            // ===== Ocean Scene Helpers =====
+            createOceanSurface(){
+                // Add reflective water-like plane (simple material placeholder)
+                const water = new THREE.Mesh(new THREE.PlaneGeometry(8000,8000,50,50), new THREE.MeshLambertMaterial({ color:0x2f7dd1, transparent:true, opacity:0.95 }));
+                water.rotation.x = -Math.PI/2; water.position.y = -40; water.receiveShadow = true;
+                this.scene.add(water);
+            }
+            createSmallIslands(){
+                for(let i=0;i<18;i++){
+                    const rad = 120 + Math.random()*140;
+                    const geo = new THREE.CircleGeometry(rad, 24);
+                    const mat = new THREE.MeshLambertMaterial({ color:0xc8c087 });
+                    const isl = new THREE.Mesh(geo, mat);
+                    isl.rotation.x = -Math.PI/2;
+                    isl.position.set((Math.random()-0.5)*6000,-49.5,(Math.random()-0.5)*6000);
+                    this.scene.add(isl);
+                    // palm or pine few trees reused
+                    for(let t=0;t<5;t++) this.createTree(isl.position.x + (Math.random()-0.5)*rad, isl.position.z + (Math.random()-0.5)*rad, 'palm');
+                }
             }
 
             createMountainRanges() {
@@ -1047,6 +1249,92 @@
                 this.muzzleFlashes.push({ mesh: flash, age: 0, life: 0.12 });
             }
 
+            // ====== Scoreboard helpers ======
+            ensurePlayerName(){
+                const storedName = localStorage.getItem('skywarriors_playerName');
+                if (storedName) { this.playerName = storedName; return; }
+                this.showNamePrompt();
+            }
+            showNamePrompt(){
+                if (document.getElementById('namePromptOverlay')) return;
+                const overlay = document.createElement('div'); overlay.id='namePromptOverlay';
+                overlay.innerHTML = `\n<div id="namePromptBox">\n  <h2>输入玩家名称</h2>\n  <input id="playerNameInput" maxlength="18" placeholder="例如：王牌飞行员" />\n  <button id="confirmNameBtn">进入战场</button>\n  <div class="note">该名字会用于积分榜并保存在浏览器本地。\n  如果留空将随机生成。</div>\n</div>`;
+                document.body.appendChild(overlay);
+                overlay.querySelector('#confirmNameBtn').addEventListener('click', ()=>{
+                    const val = overlay.querySelector('#playerNameInput').value.trim();
+                    this.playerName = val || ('Pilot_' + Math.random().toString(36).slice(2,7));
+                    localStorage.setItem('skywarriors_playerName', this.playerName);
+                    overlay.remove();
+                    this.registerPlayerIfNeeded();
+                    this.updateScoreboardUI();
+                });
+            }
+            loadScores(){
+                try { const raw = localStorage.getItem(this.localStorageKey); if(raw) this.scoreData = JSON.parse(raw); } catch(e){ console.warn('Load score error', e); }
+            }
+            saveScores(){
+                try { localStorage.setItem(this.localStorageKey, JSON.stringify(this.scoreData)); } catch(e){ console.warn('Save score error', e); }
+            }
+            registerPlayerIfNeeded(){
+                if(!this.playerName) return;
+                if(!this.scoreData.players[this.playerName]){
+                    this.scoreData.players[this.playerName] = { tank:0, ship:0, total:0, last: Date.now() };
+                    this.saveScores();
+                }
+            }
+            recordKill(type){ // type: 'tank' | 'ship'
+                if(!this.playerName) return;
+                const p = this.scoreData.players[this.playerName]; if(!p) return;
+                if(type==='tank') p.tank +=1; else if(type==='ship') p.ship +=1;
+                p.total = p.tank + p.ship; p.last = Date.now();
+                this.saveScores();
+                this.updateScoreboardUI();
+                // session counters
+                if(type==='tank') this.sessionKills.tank++; else if(type==='ship') this.sessionKills.ship++;
+                this.updateHudStats();
+            }
+            updateScoreboardUI(){
+                const panel = document.getElementById('scoreboardPanel');
+                if(!panel){ return; }
+                panel.style.display = 'block';
+                const rowsContainer = document.getElementById('scoreRows');
+                if(!rowsContainer) return;
+                const entries = Object.entries(this.scoreData.players).map(([name,data])=>({ name, ...data }));
+                entries.sort((a,b)=> b.total - a.total || a.name.localeCompare(b.name));
+                rowsContainer.innerHTML = '';
+                entries.forEach((d,idx)=>{
+                    const tr = document.createElement('tr');
+                    if (d.name === this.playerName) tr.classList.add('highlight');
+                    tr.innerHTML = `<td>${idx+1}</td><td>${d.name}</td><td>${d.tank}</td><td>${d.ship}</td><td>${d.total}</td>`;
+                    rowsContainer.appendChild(tr);
+                });
+                const nameDisp = document.getElementById('playerNameDisplay');
+                if(nameDisp) nameDisp.textContent = '当前玩家: ' + (this.playerName||'--');
+                const exportBtn = document.getElementById('exportScoreBtn');
+                if(exportBtn && !exportBtn.dataset.bound){
+                    exportBtn.dataset.bound = '1';
+                    exportBtn.addEventListener('click', ()=> this.exportScoresJSON());
+                }
+            }
+            exportScoresJSON(){
+                const blob = new Blob([JSON.stringify(this.scoreData,null,2)], { type:'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url; a.download = 'scores.json'; a.click();
+                URL.revokeObjectURL(url);
+                this.showNotification('已导出积分 JSON', 'success');
+            }
+            updateHudStats(){
+                const hud = document.getElementById('hudStats'); if(!hud) return;
+                hud.style.display = 'flex';
+                const tk = document.getElementById('hudTankKills');
+                const sk = document.getElementById('hudShipKills');
+                const tt = document.getElementById('hudTotalKills');
+                if(tk) tk.textContent = this.sessionKills.tank;
+                if(sk) sk.textContent = this.sessionKills.ship;
+                if(tt) tt.textContent = this.sessionKills.tank + this.sessionKills.ship;
+            }
+
             updateBullets(deltaTime) {
                 // 子弹移动 & 淡出
                 for (let i = this.bullets.length-1; i>=0; i--) {
@@ -1077,8 +1365,30 @@
                                 this.scene.remove(b.mesh);
                                 b.mesh.geometry.dispose();
                                 b.mesh.material.dispose();
+                                this.recordKill('tank');
                                 this.bullets.splice(i,1);
                                 break; // 跳出坦克循环
+                            }
+                        }
+                    }
+                    // ==== 碰撞检测：子弹 vs 战舰 ====
+                    if (this.warships && this.warships.length>0) {
+                        for (let wi=0; wi<this.warships.length; wi++) {
+                            const ship = this.warships[wi];
+                            if(!ship.alive) continue;
+                            const distS = b.mesh.position.distanceTo(ship.mesh.position);
+                            if (distS < ship.radius) {
+                                ship.alive = false;
+                                this.createExplosion(ship.mesh.position.clone().add(new THREE.Vector3(0,5,0)));
+                                this.scene.remove(ship.mesh);
+                                // 海面焦痕 / 浮渣：简单用一个半透明黑圆
+                                this.createSeaScorch(ship.mesh.position.x, ship.mesh.position.z);
+                                this.scene.remove(b.mesh);
+                                b.mesh.geometry.dispose();
+                                b.mesh.material.dispose();
+                                this.recordKill('ship');
+                                this.bullets.splice(i,1);
+                                break;
                             }
                         }
                     }
@@ -1104,6 +1414,96 @@
                         this.muzzleFlashes.splice(i,1);
                     }
                 }
+            }
+
+            // ==== 战舰相关 ====
+            createWarships(count=5){
+                for(let i=0;i<count;i++){
+                    const x = (Math.random()-0.5)*6500;
+                    const z = (Math.random()-0.5)*6500;
+                    if (Math.hypot(x,z) < 600) { i--; continue; }
+                    const ship = this.createWarship(x,z);
+                    this.warships.push(ship);
+                }
+            }
+            createWarship(x,z){
+                const g = new THREE.Group();
+                // 船体梭形 + 甲板
+                const hullLen = 160 + Math.random()*60;
+                const hullWidth = 22 + Math.random()*6;
+                const hullHeight = 10;
+                // 梭形 hull: 由一个长盒再用缩放形成纺锤（中宽，两端逐渐变细）
+                const spindleGeo = new THREE.BoxGeometry(hullWidth, hullHeight, hullLen, 8,1,16);
+                // 手动顶点调整：根据Z距离中心缩放X,Y 形成平滑梭形
+                const pos = spindleGeo.attributes.position;
+                for(let i=0;i<pos.count;i++){
+                    const z = pos.getZ(i);
+                    const nz = Math.abs(z)/(hullLen/2); // 0..1
+                    const taper = 1 - Math.pow(nz,1.4); // 中央最大
+                    pos.setX(i, pos.getX(i)* (0.55 + 0.45*taper));
+                    pos.setY(i, pos.getY(i)* (0.55 + 0.45*taper));
+                }
+                spindleGeo.computeVertexNormals();
+                const hullMat = new THREE.MeshStandardMaterial({ color:0x3f454c, metalness:0.25, roughness:0.85 });
+                const spindle = new THREE.Mesh(spindleGeo, hullMat);
+                spindle.position.y = -41; // 大部分浸入水下，少量露出
+                spindle.castShadow = true; spindle.receiveShadow = true;
+                g.add(spindle);
+                // 上层甲板（略短）
+                const deck = new THREE.Mesh(new THREE.BoxGeometry(hullWidth*0.9,4,hullLen*0.62), new THREE.MeshStandardMaterial({ color:0x676d75, metalness:0.25, roughness:0.6 }));
+                deck.position.set(0, -36.2, 0); // 露出水面
+                deck.castShadow = true; g.add(deck);
+                // 指挥塔 + 雷达简化
+                const tower = new THREE.Mesh(new THREE.BoxGeometry(hullWidth*0.4,14,hullLen*0.18), new THREE.MeshStandardMaterial({ color:0x7a8088 }));
+                tower.position.set(0, deck.position.y + 9, -hullLen*0.08);
+                tower.castShadow = true; g.add(tower);
+                const radar = new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.5,6,12), new THREE.MeshStandardMaterial({ color:0xd9d9d9 }));
+                radar.position.set(0, tower.position.y + 10, -hullLen*0.08);
+                radar.rotation.x = Math.PI/2; g.add(radar);
+                // 桅杆（高度7）
+                const mastHeight = 7;
+                const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.6,0.8,mastHeight,10), new THREE.MeshStandardMaterial({ color:0xdddddd, metalness:0.4, roughness:0.5 }));
+                mast.position.set(0, deck.position.y + mastHeight/2 + 2, 0);
+                mast.castShadow = true; g.add(mast);
+                // 红色箭头指示器（与坦克风格统一）
+                const arrowGroup = new THREE.Group();
+                const arrowMat = new THREE.MeshBasicMaterial({ color:0xff2222 });
+                const cone = new THREE.Mesh(new THREE.ConeGeometry(3.2,9,18), arrowMat);
+                cone.rotation.x = Math.PI; arrowGroup.add(cone);
+                const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.45,0.45,4.5,12), arrowMat);
+                stem.position.y = -6.5; arrowGroup.add(stem);
+                arrowGroup.position.set(0, deck.position.y + 18, 0);
+                arrowGroup.userData = { pulsePhase: Math.random()*Math.PI*2 };
+                g.add(arrowGroup);
+                // 炮塔 (前后各一个简化)
+                const turretMat = new THREE.MeshStandardMaterial({ color:0x5b6068, metalness:0.3, roughness:0.6 });
+                const shipTurretGeo = new THREE.CylinderGeometry(6,6,4,12);
+                const mkTurret1 = new THREE.Mesh(shipTurretGeo, turretMat); mkTurret1.position.set(0, deck.position.y + 3, hullLen*0.18); mkTurret1.castShadow=true; g.add(mkTurret1);
+                const mkTurret2 = new THREE.Mesh(shipTurretGeo, turretMat); mkTurret2.position.set(0, deck.position.y + 3, -hullLen*0.25); mkTurret2.castShadow=true; g.add(mkTurret2);
+                // 炮管双联
+                const barrelGeo = new THREE.CylinderGeometry(0.7,0.9,18,12);
+                [mkTurret1, mkTurret2].forEach((tur,idx)=>{
+                    for(let b=0;b<2;b++){
+                        const barrel = new THREE.Mesh(barrelGeo, new THREE.MeshStandardMaterial({ color:0x3a3d42, metalness:0.5, roughness:0.4 }));
+                        barrel.rotation.x = Math.PI/2;
+                        barrel.position.set((b===0? -1.2:1.2), tur.position.y, tur.position.z + (idx===0? 8: -8));
+                        barrel.position.y += 2;
+                        g.add(barrel);
+                    }
+                });
+                g.position.set(x,0,z);
+                this.scene.add(g);
+                return { mesh: g, alive: true, radius: hullWidth*2, indicator: arrowGroup };
+            }
+            createSeaScorch(x,z){
+                const r = 18 + Math.random()*12;
+                const geo = new THREE.CircleGeometry(r, 22);
+                const mat = new THREE.MeshBasicMaterial({ color:0x000000, transparent:true, opacity:0.25 });
+                const scorch = new THREE.Mesh(geo, mat);
+                scorch.rotation.x = -Math.PI/2;
+                scorch.position.set(x, -39.9, z);
+                this.scene.add(scorch);
+                setTimeout(()=>{ this.scene.remove(scorch); geo.dispose(); mat.dispose(); }, 8000);
             }
 
             // === 环境系统函数 ===
@@ -1168,6 +1568,7 @@
 
             // === 湖泊系统（替换原先的河流系统） ===
             createLakes() {
+                if (this.sceneType === 'desert') return; // 沙漠禁用湖泊
                 // 创建多个不同大小与形状的湖泊
                 const lakeConfigs = [
                     { x: -1500, z: -1200, radius: 350, color: 0x3A87BD }, // 大湖
@@ -1189,6 +1590,7 @@
             }
 
             createLake(centerX, centerZ, radius, color) {
+                if (this.sceneType === 'desert') return; // 再次防御性检查
                 // 使用细分圆形并随机扰动顶点制造自然外形
                 const segments = 48;
                 const geometry = new THREE.CircleGeometry(radius, segments);
@@ -1235,6 +1637,28 @@
             createTree(x, z, treeType = 'oak') {
                 const treeGroup = new THREE.Group();
                 
+                // 海洋场景：在树下生成更高、明显的黄色沙滩小岛（圆台状）
+                if (this.sceneType === 'ocean') {
+                    const baseRadius = treeType === 'palm' ? 30 : 22;
+                    const islandRadiusTop = baseRadius * 0.7;
+                    const islandRadiusBottom = baseRadius + Math.random() * (treeType === 'palm' ? 18 : 10);
+                    const height = 8 + Math.random()*4; // 明显高于水面 (水面 ~ -40)
+                    const geo = new THREE.CylinderGeometry(islandRadiusTop, islandRadiusBottom, height, 24, 1, false);
+                    geo.translate(0, height/2, 0);
+                    const sandColor = new THREE.Color().setHSL(0.12 + Math.random()*0.04, 0.55, 0.62); // 亮黄沙
+                    const island = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: sandColor }));
+                    island.position.set(x, -50, z); // 底部贴近原虚拟地平 (-50)
+                    island.castShadow = true; island.receiveShadow = true;
+                    island.userData.isIsland = true;
+                    // 顶部再加一圈更浅的沙滩边缘
+                    const rimGeo = new THREE.CylinderGeometry(islandRadiusTop*1.05, islandRadiusTop*1.25, 1.2, 24, 1, false);
+                    const rim = new THREE.Mesh(rimGeo, new THREE.MeshLambertMaterial({ color: 0xF5E7A1 }));
+                    rim.position.y = height + -50 - 0.4; // 贴近顶部
+                    rim.receiveShadow = true;
+                    island.add(rim);
+                    this.scene.add(island);
+                }
+
                 let trunkHeight, trunkRadius;
                 
                 switch(treeType) {
@@ -1536,57 +1960,93 @@
                 const baseColor = palette[Math.floor(Math.random()*palette.length)];
                 const baseMat = new THREE.MeshStandardMaterial({ color: baseColor, metalness:0.25, roughness:0.75 });
 
-                // === 矩形底座 ===
-                const hull = new THREE.Mesh(new THREE.BoxGeometry(30,5,46), baseMat);
-                hull.position.y = -50 + 2.5;
+                // === 矩形底座 (narrower & taller) ===
+                const hullWidth = 24; // narrower (was 30)
+                const hullHeight = 8; // taller (was 5)
+                const hullLength = 46;
+                const hull = new THREE.Mesh(new THREE.BoxGeometry(hullWidth, hullHeight, hullLength), baseMat);
+                hull.position.y = -50 + hullHeight/2;
                 hull.castShadow = true; hull.receiveShadow = true;
                 group.add(hull);
 
                 // === 履带与5个负重轮（每侧） ===
                 const trackMat = new THREE.MeshStandardMaterial({ color:0x1d1d1d, roughness:0.95 });
                 for (let side of [-1,1]){
-                    const track = new THREE.Mesh(new THREE.BoxGeometry(4,3.2,46), trackMat);
-                    track.position.set(side*(30/2+3), -50+1.6, 0);
+                    const track = new THREE.Mesh(new THREE.BoxGeometry(4, hullHeight-1.8, hullLength), trackMat);
+                    track.position.set(side*(hullWidth/2+3.2), -50 + (hullHeight-1.8)/2, 0);
                     track.castShadow = true; group.add(track);
                 }
-                const wheelGeo = new THREE.CylinderGeometry(2.2,2.2,1.4,18);
+                const wheelGeo = new THREE.CylinderGeometry(2.4,2.4,1.4,18);
                 const wheelMat = new THREE.MeshStandardMaterial({ color:0x3a3a3a, metalness:0.4, roughness:0.6 });
                 const wheelZs = [-14,-7,0,7,14];
                 for (let side of [-1,1]){
                     wheelZs.forEach(zv=>{
                         const w = new THREE.Mesh(wheelGeo, wheelMat);
                         w.rotation.z = Math.PI/2;
-                        w.position.set(side*(30/2+3), -50+1.2, zv);
+                        w.position.set(side*(hullWidth/2+3.2), -50 + 1.6, zv);
                         group.add(w);
                     });
                 }
 
                 // === 圆柱炮塔 ===
-                const turretHeight = 4;
+                const turretHeight = 9; // 增高炮塔 (原 4 -> 7 -> 9)
                 const turret = new THREE.Mesh(new THREE.CylinderGeometry(10,10,turretHeight,24), baseMat);
-                const turretY = -50 + 2.5 + 2.5 + turretHeight/2; // 底座顶面 + 炮塔一半高度
-                turret.position.set(0, turretY, 0); // 竖直放置（不再旋转）
+                const turretY = -50 + 2.5 + 2.5 + turretHeight/2; // 底座顶面 + 炮塔一半高度 (仍使用旧底盘高度逻辑)
+                turret.position.set(0, turretY, 0);
                 turret.castShadow = true; turret.receiveShadow = true;
                 group.add(turret);
+                // === 顶部舱门（圆形圆柱，高度2 半径2） ===
+                const hatchGeo = new THREE.CylinderGeometry(2,2,2,24);
+                const hatchMat = new THREE.MeshStandardMaterial({ color: baseColor });
+                const hatch = new THREE.Mesh(hatchGeo, hatchMat);
+                hatch.position.set(0, turretY + turretHeight/2 + 1, 0); // 放在炮塔顶部正中
+                hatch.castShadow = true; hatch.receiveShadow = true;
+                group.add(hatch);
 
-                // === 炮管（从炮塔中心 35° 抬起） ===
-                const gunPivot = new THREE.Group();
-                gunPivot.position.set(0, turretY, 0);
-                group.add(gunPivot);
-                const barrelMat = new THREE.MeshStandardMaterial({ color:0x2d2d2d, metalness:0.6, roughness:0.45 });
-                const barrelLength = 26;
-                const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.6,0.85,barrelLength,18), barrelMat);
-                // 先让轴沿 Z
-                barrel.rotation.x = Math.PI/2; // Y -> Z
-                barrel.position.z = barrelLength/2 + 2; // 从塔中心向前
-                gunPivot.add(barrel);
-                // 炮口内膛
-                const inner = new THREE.Mesh(new THREE.CylinderGeometry(0.4,0.4,2,12), new THREE.MeshStandardMaterial({ color:0x050505, metalness:0.3, roughness:0.9 }));
-                inner.rotation.x = Math.PI/2;
-                inner.position.z = barrelLength + 2;
-                gunPivot.add(inner);
-                // 抬升角度（负号使其朝上）
-                gunPivot.rotation.x = -THREE.MathUtils.degToRad(35);
+                // === 主武器或防空机枪配置 ===
+                const aaVariant = Math.random() < 0.30; // 30% 防空坦克
+                if (!aaVariant) {
+                    // 常规炮管（从炮塔中心 35° 抬起）
+                    const gunPivot = new THREE.Group();
+                    gunPivot.position.set(0, turretY, 0);
+                    group.add(gunPivot);
+                    const barrelMat = new THREE.MeshStandardMaterial({ color:0x2d2d2d, metalness:0.6, roughness:0.45 });
+                    const barrelLength = 26;
+                    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.6,0.85,barrelLength,18), barrelMat);
+                    barrel.rotation.x = Math.PI/2;
+                    barrel.position.z = barrelLength/2 + 2;
+                    gunPivot.add(barrel);
+                    const inner = new THREE.Mesh(new THREE.CylinderGeometry(0.4,0.4,2,12), new THREE.MeshStandardMaterial({ color:0x050505, metalness:0.3, roughness:0.9 }));
+                    inner.rotation.x = Math.PI/2;
+                    inner.position.z = barrelLength + 2;
+                    gunPivot.add(inner);
+                    gunPivot.rotation.x = -THREE.MathUtils.degToRad(35);
+                } else {
+                    // 防空型：四联机枪塔
+                    const mgGroup = new THREE.Group();
+                    mgGroup.position.set(0, turretY + turretHeight/2 * 0.2, 0);
+                    const mount = new THREE.Mesh(new THREE.CylinderGeometry(2.4,2.6,2.2,16), new THREE.MeshStandardMaterial({ color: baseColor*0.9, metalness:0.4, roughness:0.6 }));
+                    mount.castShadow = true; mgGroup.add(mount);
+                    const gunMat = new THREE.MeshStandardMaterial({ color:0x222222, metalness:0.55, roughness:0.35 });
+                    const tubeGeo = new THREE.CylinderGeometry(0.35,0.35,17,10); // 加长3
+                    const muzzleGeo = new THREE.CylinderGeometry(0.18,0.18,0.9,10);
+                    const offsets = [ [-0.9,0.5], [0.9,0.5], [-0.9,-0.5], [0.9,-0.5] ];
+                    offsets.forEach(([ox,oy])=>{
+                        const tube = new THREE.Mesh(tubeGeo, gunMat);
+                        tube.rotation.x = Math.PI/2;
+                        tube.position.set(ox, oy, 6.5 + 1.5); // 前移以保持后端位置近似不变
+                        tube.castShadow = true;
+                        mgGroup.add(tube);
+                        const muzzle = new THREE.Mesh(muzzleGeo, gunMat);
+                        muzzle.rotation.x = Math.PI/2;
+                        muzzle.position.set(ox, oy, 13.2 + 1.5); // 与机枪加长匹配
+                        mgGroup.add(muzzle);
+                    });
+                    // 轻微仰角
+                    mgGroup.rotation.x = -THREE.MathUtils.degToRad(10);
+                    group.add(mgGroup);
+                    group.userData.aa = true; // 标记防空
+                }
 
                 // === 红色高亮指示箭头（保持） ===
                 const arrowGroup = new THREE.Group();
@@ -1609,21 +2069,33 @@
             }
 
             updateTankIndicators(delta){
-                if(!this.tanks) return;
                 const t = performance.now()*0.001;
-                this.tanks.forEach(tank=>{
-                    if(!tank.alive) {
-                        if(tank.indicator) tank.indicator.visible=false;
-                        return;
-                    }
-                    if(tank.indicator){
-                        tank.indicator.visible = true;
-                        tank.indicator.lookAt(this.camera.position);
-                        const phase = t*4 + (tank.indicator.userData.pulsePhase||0);
-                        const s = 1 + Math.sin(phase)*0.25;
-                        tank.indicator.scale.set(s,s,s);
-                    }
-                });
+                // Tanks
+                if(this.tanks){
+                    this.tanks.forEach(tank=>{
+                        if(!tank.alive) { if(tank.indicator) tank.indicator.visible=false; return; }
+                        if(tank.indicator){
+                            tank.indicator.visible = true;
+                            tank.indicator.lookAt(this.camera.position);
+                            const phase = t*4 + (tank.indicator.userData.pulsePhase||0);
+                            const s = 1 + Math.sin(phase)*0.25;
+                            tank.indicator.scale.set(s,s,s);
+                        }
+                    });
+                }
+                // Warships
+                if(this.warships){
+                    this.warships.forEach(ship=>{
+                        if(!ship.alive) { if(ship.indicator) ship.indicator.visible=false; return; }
+                        if(ship.indicator){
+                            ship.indicator.visible = true;
+                            ship.indicator.lookAt(this.camera.position);
+                            const phase = t*4 + (ship.indicator.userData.pulsePhase||0);
+                            const s = 1 + Math.sin(phase)*0.25;
+                            ship.indicator.scale.set(s,s,s);
+                        }
+                    });
+                }
             }
 
             createExplosion(position){
@@ -2322,6 +2794,98 @@
                 setTimeout(() => {
                     notification.style.display = 'none';
                 }, 3000);
+            }
+
+            // === 场景切换 UI ===
+            setupSceneSwitcher(){
+                const id = 'sceneSwitcher';
+                if (document.getElementById(id)) return; // 已存在
+                const panel = document.createElement('div');
+                panel.id = id;
+                const scenes = [
+                    { key:'default', label:'默认' },
+                    { key:'snow', label:'雪地' },
+                    { key:'desert', label:'沙漠' },
+                    { key:'ocean', label:'海洋' }
+                ];
+                scenes.forEach(s => {
+                    const btn = document.createElement('button');
+                    btn.textContent = s.label;
+                    if (this.sceneType === s.key) btn.classList.add('active');
+                    btn.addEventListener('click', ()=>{
+                        if (this.sceneType === s.key) return;
+                        // 更新 URL hash 但不强制刷新
+                        if (s.key==='default') {
+                            history.replaceState(null,'', window.location.pathname + window.location.search);
+                        } else {
+                            history.replaceState(null,'', '#'+s.key);
+                        }
+                        this.switchSceneType(s.key);
+                        // 更新按钮状态
+                        panel.querySelectorAll('button').forEach(b=>b.classList.remove('active'));
+                        btn.classList.add('active');
+                        this.showNotification('切换到场景: '+s.label, 'success');
+                    });
+                    panel.appendChild(btn);
+                });
+                document.body.appendChild(panel);
+            }
+
+            // 动态切换场景（不刷新页面 / 不显示蓝色加载）
+            switchSceneType(newType){
+                if (!['default','snow','desert','ocean'].includes(newType)) return;
+                if (this.sceneType === newType) return;
+                const prevScene = this.scene;
+                this.sceneType = newType;
+                // 保存飞机与相机状态
+                const aircraft = this.aircraft;
+                const playerPos = this.playerPosition.clone();
+                const playerVel = this.playerVelocity.clone();
+                // === 清理旧子节点（保留 renderer/camera/aircraft 引用即可） ===
+                this.disposeOldScene(prevScene, aircraft);
+                // 创建新场景
+                const fogColors = { default:0x87CEEB, snow:0xdbe9f5, desert:0xe2c27b, ocean:0x6fb2ff };
+                this.scene = new THREE.Scene();
+                const fogColor = fogColors[this.sceneType] || 0x87CEEB;
+                this.scene.fog = new THREE.Fog(fogColor, 100, 2000);
+                this.renderer.setClearColor(fogColor,1);
+                // 重新添加飞机
+                if (aircraft) {
+                    this.aircraft = aircraft;
+                    this.aircraft.position.copy(playerPos);
+                    this.scene.add(this.aircraft);
+                }
+                // 重置容器引用
+                this.tanks = []; this.bullets = []; this.muzzleFlashes = [];
+                // 保留触发结构，清空后会通过 createNoseCannons 重建
+                this.gunBarrels = [];
+                // 重建光照与地形
+                this.setupLighting();
+                this.environmentConfig = this.getEnvironmentConfig(this.sceneType);
+                this.createTerrain();
+                if (this.sceneType !== 'ocean') this.createClouds();
+                // 重新添加机炮（若丢失）
+                this.createNoseCannons();
+                // 如果切换过程中按住鼠标仍保持射击状态
+                if (this.isFiring) {
+                    // 立即尝试一次发射以验证恢复
+                    this.lastShotTime = 0; // 重置计时器允许马上开火
+                }
+                // 恢复玩家运动状态
+                this.playerPosition.copy(playerPos);
+                this.playerVelocity.copy(playerVel);
+            }
+
+            disposeOldScene(oldScene, aircraftKeep){
+                if (!oldScene) return;
+                oldScene.traverse(obj=>{
+                    if (aircraftKeep && (obj===aircraftKeep || aircraftKeep.children.includes(obj))) return;
+                    if (obj.isMesh) {
+                        if (obj.geometry) obj.geometry.dispose();
+                        if (Array.isArray(obj.material)) obj.material.forEach(m=>m && m.dispose && m.dispose());
+                        else if (obj.material) obj.material.dispose();
+                    }
+                });
             }
 
             gameLoop() {
