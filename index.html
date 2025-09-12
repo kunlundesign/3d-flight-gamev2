@@ -612,7 +612,7 @@
                 
                 // === HORIZONTAL STABILIZER (水平尾翼) REWORK: 分段渐缩与主翼风格一致 ===
                 const tailWingGroup = new THREE.Group();
-                const tailSections = 4;               // 分段数量（每侧）
+                const tailSections = 2;               // 分段数量（每侧）由4改为2，减少割裂感
                 const tailSpanHalf = 4.3;             // 半翼展 ≈ 主翼半翼展(≈10.8) 的40%
                 const baseChord = 2.2;                // 根部弦长
                 const tipChord = 1.2;                 // 翼尖弦长
@@ -621,26 +621,29 @@
                 const segmentSpan = tailSpanHalf / tailSections; // 每段跨度
                 for (let side = -1; side <= 1; side += 2) {
                     for (let i = 0; i < tailSections; i++) {
-                        const t = i / (tailSections - 1);
+                        const t = i / (tailSections - 1); // 0 或 1
                         const chord = THREE.MathUtils.lerp(baseChord, tipChord, t);
                         const thickness = THREE.MathUtils.lerp(baseThickness, tipThickness, t);
-                        const spanWidth = segmentSpan * 0.95; // 略收以减少重叠
+                        // 让根段更宽，尖段收敛
+                        const spanWidth = (i === 0 ? segmentSpan * 1.1 : segmentSpan * 0.85);
                         const geo = new THREE.BoxGeometry(spanWidth, thickness, chord);
                         const seg = new THREE.Mesh(geo, wingMaterial);
-                        const spanOffset = (i + 0.5) * segmentSpan; // 直接使用真实跨度
+                        // 均匀放置但稍微内收第二段以消除明显断点
+                        const spanOffset = (i === 0)
+                            ? (segmentSpan * 0.55)
+                            : (segmentSpan * 0.55 + segmentSpan * 0.9);
                         seg.position.set(side * spanOffset, 0, -10);
-                        // 轻微上反角 + 扭转
-                        seg.rotation.z = side * THREE.MathUtils.degToRad(3 + t * 1.5);
-                        seg.rotation.y = side * THREE.MathUtils.degToRad(1.0 + t * 1.5);
+                        seg.rotation.z = side * THREE.MathUtils.degToRad(3.5 + t * 1.2);
+                        seg.rotation.y = side * THREE.MathUtils.degToRad(1.2 + t * 1.0);
                         seg.castShadow = true;
                         tailWingGroup.add(seg);
                     }
                     // 翼尖（圆润收束）
-                    const tipGeo = new THREE.CapsuleGeometry(0.32, 0.6, 4, 8);
+                    const tipGeo = new THREE.CapsuleGeometry(0.30, 0.55, 4, 8);
                     const tip = new THREE.Mesh(tipGeo, wingMaterial);
                     tip.rotation.z = Math.PI / 2;
                     tip.scale.set(1, 0.5, 0.75);
-                    tip.position.set(side * (tailSpanHalf + 0.3), 0, -10);
+                    tip.position.set(side * (tailSpanHalf * 0.96 + 0.25), 0, -10);
                     tip.castShadow = true;
                     tailWingGroup.add(tip);
                 }
