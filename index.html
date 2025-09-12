@@ -163,8 +163,9 @@
     </script>
 
     <script type="module">
-        import * as THREE from 'three';
-        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import * as THREE from 'three';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
 
         class SkyWarriors {
             constructor() {
@@ -200,6 +201,28 @@
                 // Terrain and environment
                 this.terrain = [];
                 this.clouds = [];
+                // === Environment configuration ===
+                this.environmentConfig = {
+                    treeDensityMultiplier: 2.8, // increased density
+                    rockCount: 0,               // removed rocks
+                    grassPatchCount: 180,
+                    bushClusterCount: 70,
+                    birdFlocks: 0,              // removed bird flocks
+                    soilPatchCount: 120
+                };
+                // === Combat targets ===
+                this.tanks = []; // 静态坦克目标 { mesh, alive, radius }
+                // Raycaster for ground height sampling
+                this.raycaster = new THREE.Raycaster();
+                // --- Weapon system state (nose cannons) ---
+                this.isFiring = false;          // 是否按住射击
+                this.lastShotTime = 0;          // 上次发射时间 (s)
+                this.fireInterval = 0.08;       // 射速间隔 ~12.5发/秒
+                this.bullets = [];              // 活跃子弹
+                this.muzzleFlashes = [];        // 枪口火光
+                this.gunBarrels = [];           // 炮口引用
+                this.tempVec = new THREE.Vector3();
+                this.forwardVec = new THREE.Vector3(0,0,1);
                 
                 this.init();
             }
@@ -210,8 +233,10 @@
                 this.createTerrain();
                 this.createClouds();
                 this.createDefaultAircraft();
+                this.createNoseCannons(); // 机头机炮
                 this.setupFileUpload();
                 this.setupKeyboardControls();
+                this.setupMouseControls(); // 鼠标射击
                 this.hideLoadingScreen();
                 this.gameLoop();
             }
@@ -319,14 +344,29 @@
                 ground.position.y = -50;
                 ground.receiveShadow = true;
                 this.scene.add(ground);
+                // 保存地面引用用于高度采样
+                this.ground = ground;
                 
                 // 创建多样化美丽的山脉系统
                 this.createMountainRanges();
 
                 // 创建自然环境元素
                 this.createTrees();
-                this.createRivers();
-                this.createRoads();
+                // 改为创建湖泊系统（移除河流和公路）
+                this.createLakes();
+                // 裸露土地斑块
+                this.createSoilPatches(this.environmentConfig.soilPatchCount);
+                // 岩石 / 草丛 / 灌木 / 鸟群
+                if (this.environmentConfig.rockCount > 0) this.createRocks(this.environmentConfig.rockCount);
+                this.createGrassPatches(this.environmentConfig.grassPatchCount);
+                for (let i=0;i<this.environmentConfig.bushClusterCount;i++) {
+                    this.createBushCluster((Math.random()-0.5)*6500,(Math.random()-0.5)*6500,6+Math.random()*8);
+                }
+                if (this.environmentConfig.birdFlocks > 0) {
+                    for (let i=0;i<this.environmentConfig.birdFlocks;i++) this.createBirdFlock();
+                }
+                // 放置静态坦克目标（数量增加）
+                this.createTanks(30);
             }
 
             createMountainRanges() {
@@ -362,72 +402,81 @@
 
             createSingleMountain(x, z, type, color) {
                 let height, baseRadius, shape, mountainColor;
-                
-                // 根据类型设置参数
                 switch(type) {
                     case 'high':
-                        height = 120 + Math.random() * 80;
-                        baseRadius = 40 + Math.random() * 30;
-                        shape = 'cone';
-                        mountainColor = color || 0x8b7355;
-                        break;
+                        height = 120 + Math.random()*110;
+                        baseRadius = 50 + Math.random()*40;
+                        shape = Math.random()<0.2 ? 'ridge' : (Math.random()<0.4 ? 'mesa' : 'cone');
+                        mountainColor = color || 0x7a6550; break;
                     case 'medium':
-                        height = 70 + Math.random() * 50;
-                        baseRadius = 35 + Math.random() * 25;
-                        shape = Math.random() > 0.5 ? 'cone' : 'pyramid';
-                        mountainColor = color || 0xA0522D;
-                        break;
+                        height = 70 + Math.random()*60;
+                        baseRadius = 40 + Math.random()*30;
+                        shape = Math.random()<0.3 ? 'pyramid' : (Math.random()<0.55 ? 'dome' : 'cone');
+                        mountainColor = color || 0x9c6233; break;
                     case 'low':
-                        height = 30 + Math.random() * 40;
-                        baseRadius = 30 + Math.random() * 20;
-                        shape = 'dome';
-                        mountainColor = color || 0x9ACD32;
-                        break;
-                    default: // random
-                        const types = ['high', 'medium', 'low'];
-                        const randomType = types[Math.floor(Math.random() * types.length)];
-                        return this.createSingleMountain(x, z, randomType);
+                        height = 30 + Math.random()*45;
+                        baseRadius = 32 + Math.random()*22;
+                        shape = Math.random()<0.5 ? 'dome' : 'ridge';
+                        mountainColor = color || 0x6fae3b; break;
+                    default:
+                        return this.createSingleMountain(x, z, ['high','medium','low'][Math.floor(Math.random()*3)]);
                 }
-                
+                if (Math.random()<0.08) shape = 'crater';
                 let mountainGeometry;
-                
-                // 根据形状创建几何体
                 switch(shape) {
                     case 'cone':
-                        mountainGeometry = new THREE.ConeGeometry(baseRadius, height, 8 + Math.floor(Math.random() * 4));
-                        break;
+                        mountainGeometry = new THREE.ConeGeometry(baseRadius, height, 10 + Math.floor(Math.random()*5)); break;
                     case 'pyramid':
-                        mountainGeometry = new THREE.ConeGeometry(baseRadius, height, 4);
-                        break;
+                        mountainGeometry = new THREE.ConeGeometry(baseRadius, height, 4); break;
                     case 'dome':
-                        mountainGeometry = new THREE.SphereGeometry(baseRadius, 8, 4, 0, Math.PI * 2, 0, Math.PI / 2);
-                        mountainGeometry.scale(1, height / baseRadius, 1);
-                        break;
+                        mountainGeometry = new THREE.SphereGeometry(baseRadius, 12, 8,0,Math.PI*2,0,Math.PI/2); mountainGeometry.scale(1,height/baseRadius,1); break;
+                    case 'mesa': {
+                        const base = new THREE.CylinderGeometry(baseRadius*0.8, baseRadius, height*0.65, 10);
+                        const top = new THREE.CylinderGeometry(baseRadius*0.55, baseRadius*0.6, height*0.15, 10); top.translate(0,height*0.4,0);
+                        mountainGeometry = BufferGeometryUtils ? BufferGeometryUtils.mergeGeometries([base, top]) : base; break;
+                    }
+                    case 'ridge':
+                        mountainGeometry = new THREE.ConeGeometry(baseRadius, height, 6); mountainGeometry.scale(1.8,1,0.6); break;
+                    case 'crater':
+                        mountainGeometry = new THREE.CylinderGeometry(baseRadius*1.3, baseRadius*1.4, height*0.5, 24,1,true); break;
                 }
-                
-                // 添加地形变化
-                const vertices = mountainGeometry.attributes.position.array;
-                for (let i = 0; i < vertices.length; i += 3) {
-                    // 随机高度变化，模拟岩石纹理
-                    const variation = (Math.random() - 0.5) * 8;
-                    vertices[i] += variation * 0.3; // X方向
-                    vertices[i + 1] += variation * 0.2; // Y方向  
-                    vertices[i + 2] += variation * 0.3; // Z方向
+                const posAttr = mountainGeometry.attributes.position;
+                for (let i=0;i<posAttr.count;i++) {
+                    const vx = posAttr.getX(i), vy = posAttr.getY(i), vz = posAttr.getZ(i);
+                    const noise = (Math.sin(vx*0.15)+Math.sin(vz*0.18))*0.6 + (Math.random()-0.5)*0.9;
+                    posAttr.setY(i, vy + noise*2);
+                    posAttr.setX(i, vx + (Math.random()-0.5)*0.8);
+                    posAttr.setZ(i, vz + (Math.random()-0.5)*0.8);
                 }
-                mountainGeometry.attributes.position.needsUpdate = true;
+                posAttr.needsUpdate = true;
                 mountainGeometry.computeVertexNormals();
-                
-                const mountainMaterial = new THREE.MeshLambertMaterial({ 
-                    color: mountainColor
-                });
-                
+                const hFactor = THREE.MathUtils.clamp((height-40)/140,0,1);
+                const baseColor = new THREE.Color(mountainColor);
+                const tint = new THREE.Color().setHSL(0.08 + 0.1*hFactor, 0.35, 0.25 + 0.25*hFactor);
+                baseColor.lerp(tint,0.4);
+                // === 对齐到地面防止悬浮 ===
+                mountainGeometry.computeBoundingBox();
+                const bbox = mountainGeometry.boundingBox;
+                const GROUND_Y = -50;
+                // 计算将几何底部贴到地面的中心 Y
+                const placeY = GROUND_Y - bbox.min.y; // 使 (placeY + bbox.min.y) == GROUND_Y
+                const mountainMaterial = new THREE.MeshLambertMaterial({ color: baseColor });
                 const mountain = new THREE.Mesh(mountainGeometry, mountainMaterial);
-                mountain.position.set(x, height / 2 - 50, z);
-                mountain.rotation.y = Math.random() * Math.PI * 2; // 随机旋转
-                mountain.castShadow = true;
-                mountain.receiveShadow = true;
-                
+                mountain.position.set(x, placeY, z);
+                mountain.rotation.y = Math.random()*Math.PI*2;
+                mountain.castShadow = true; mountain.receiveShadow = true;
+                mountain.userData.type = 'mountain';
                 this.scene.add(mountain);
+                // 雪顶重新基于实际最高点放置
+                if (height > 110) {
+                    const snowHeight = height*0.25;
+                    const snow = new THREE.Mesh(new THREE.ConeGeometry(baseRadius*0.35, snowHeight, 10), new THREE.MeshLambertMaterial({ color: 0xf5f7f8 }));
+                    const topY = mountain.position.y + bbox.max.y; // 山体最高点
+                    // 放在最高点稍低一点，保持贴合
+                    snow.position.set(x, topY - height*0.12, z);
+                    snow.castShadow = false; snow.receiveShadow = true;
+                    this.scene.add(snow);
+                }
             }
 
             // === createTerrain 函数结束 ===
@@ -789,35 +838,162 @@
                 // Store references
                 this.aircraft = planeGroup;
                 this.scene.add(this.aircraft);
+                // 如果默认飞机创建成功后添加机炮（若未在init里）
+                if (this.gunBarrels.length === 0) this.createNoseCannons();
+            }
+
+            // ================= Nose Cannon System =================
+            createNoseCannons() {
+                if (!this.aircraft) return;
+                // 避免重复添加
+                if (this.aircraft.getObjectByName('NoseCannons')) return;
+                const barrelsGroup = new THREE.Group();
+                barrelsGroup.name = 'NoseCannons';
+                const barrelMat = new THREE.MeshStandardMaterial({
+                    color: 0x2c2c2c,
+                    metalness: 0.85,
+                    roughness: 0.25
+                });
+                const barrelGeo = new THREE.CylinderGeometry(0.12, 0.12, 1.6, 12);
+                this.gunBarrels = [];
+                for (let s of [-1,1]) {
+                    const barrel = new THREE.Mesh(barrelGeo, barrelMat);
+                    barrel.rotation.x = Math.PI/2;
+                    barrel.position.set(s*0.6, -0.15, 7.2);
+                    barrel.castShadow = true;
+                    barrelsGroup.add(barrel);
+                    this.gunBarrels.push(barrel);
+                }
+                // 装饰基座环
+                const ringGeo = new THREE.TorusGeometry(0.28, 0.045, 6, 16);
+                for (let s of [-1,1]) {
+                    const ring = new THREE.Mesh(ringGeo, new THREE.MeshStandardMaterial({
+                        color: 0x555555,
+                        metalness: 0.6,
+                        roughness: 0.4
+                    }));
+                    ring.rotation.x = Math.PI/2;
+                    ring.position.set(s*0.6, -0.15, 6.45);
+                    barrelsGroup.add(ring);
+                }
+                this.aircraft.add(barrelsGroup);
+            }
+
+            setupMouseControls() {
+                const canvas = this.renderer.domElement;
+                canvas.addEventListener('mousedown', (e)=>{ if (e.button===0) this.isFiring = true; });
+                window.addEventListener('mouseup', (e)=>{ if (e.button===0) this.isFiring = false; });
+            }
+
+            tryFireGuns(deltaTime) {
+                if (!this.isFiring || !this.aircraft || this.gunBarrels.length===0) return;
+                const now = performance.now()/1000;
+                if (now - this.lastShotTime < this.fireInterval) return;
+                this.lastShotTime = now;
+                // 前向方向
+                this.forwardVec.set(0,0,1).applyEuler(new THREE.Euler(this.inputState.pitch, this.inputState.yaw, this.inputState.roll)).normalize();
+                // 炮口射击
+                this.gunBarrels.forEach(barrel=>{
+                    barrel.getWorldPosition(this.tempVec);
+                    this.spawnBullet(this.tempVec, this.forwardVec);
+                    this.spawnMuzzleFlash(barrel);
+                });
+            }
+
+            spawnBullet(origin, forward) {
+                const geo = new THREE.SphereGeometry(0.45, 10, 10);
+                const mat = new THREE.MeshBasicMaterial({ color: 0xfff066 });
+                const mesh = new THREE.Mesh(geo, mat);
+                mesh.position.copy(origin);
+                this.scene.add(mesh);
+                const speed = 450;
+                this.bullets.push({ mesh, velocity: forward.clone().multiplyScalar(speed), life: 2, age: 0 });
+            }
+
+            spawnMuzzleFlash(barrel) {
+                const flashGeo = new THREE.SphereGeometry(0.2, 8, 8);
+                const flashMat = new THREE.MeshBasicMaterial({ color: 0xffdd44 });
+                const flash = new THREE.Mesh(flashGeo, flashMat);
+                barrel.getWorldPosition(flash.position);
+                this.scene.add(flash);
+                this.muzzleFlashes.push({ mesh: flash, age: 0, life: 0.12 });
+            }
+
+            updateBullets(deltaTime) {
+                // 子弹移动 & 淡出
+                for (let i = this.bullets.length-1; i>=0; i--) {
+                    const b = this.bullets[i];
+                    b.age += deltaTime;
+                    b.mesh.position.addScaledVector(b.velocity, deltaTime);
+                    // 伸长视觉（沿局部Z用scale模拟）
+                    b.mesh.scale.z = 1 + b.age*4;
+                    const t = b.age / b.life;
+                    if (t > 0.6) {
+                        b.mesh.material.transparent = true;
+                        b.mesh.material.opacity = 1 - (t-0.6)/0.4;
+                    }
+                    // ==== 碰撞检测：子弹 vs 坦克 ====
+                    if (this.tanks && this.tanks.length>0) {
+                        for (let ti = 0; ti < this.tanks.length; ti++) {
+                            const tank = this.tanks[ti];
+                            if (!tank.alive) continue;
+                            const dist = b.mesh.position.distanceTo(tank.mesh.position);
+                            if (dist < tank.radius) {
+                                // 命中
+                                tank.alive = false;
+                                this.createExplosion(tank.mesh.position.clone());
+                                this.scene.remove(tank.mesh);
+                                // 生成残骸/焦黑贴花
+                                this.createScorchMark(tank.mesh.position.x, tank.mesh.position.z);
+                                // 移除子弹
+                                this.scene.remove(b.mesh);
+                                b.mesh.geometry.dispose();
+                                b.mesh.material.dispose();
+                                this.bullets.splice(i,1);
+                                break; // 跳出坦克循环
+                            }
+                        }
+                    }
+                    if (b.age >= b.life) {
+                        this.scene.remove(b.mesh);
+                        b.mesh.geometry.dispose();
+                        b.mesh.material.dispose();
+                        this.bullets.splice(i,1);
+                    }
+                }
+                // 枪口火光
+                for (let i = this.muzzleFlashes.length-1; i>=0; i--) {
+                    const f = this.muzzleFlashes[i];
+                    f.age += deltaTime;
+                    const p = f.age / f.life;
+                    f.mesh.scale.setScalar(1 + p*5);
+                    f.mesh.material.transparent = true;
+                    f.mesh.material.opacity = 1 - p;
+                    if (f.age >= f.life) {
+                        this.scene.remove(f.mesh);
+                        f.mesh.geometry.dispose();
+                        f.mesh.material.dispose();
+                        this.muzzleFlashes.splice(i,1);
+                    }
+                }
             }
 
             // === 环境系统函数 ===
             
             createTrees() {
-                // 创建真实的森林分布 - 疏密有致
-                
-                // 1. 密集森林区域（模拟原始森林）
-                this.createDenseForest(-2500, -2000, 800, 600, 'pine', 80);     // 密集松树林
-                this.createDenseForest(1800, 1500, 700, 500, 'oak', 70);        // 密集橡树林
-                
-                // 2. 中等密度森林
-                this.createMediumForest(-1000, 2200, 900, 700, 'mixed', 45);    // 混合林
-                this.createMediumForest(2200, -800, 600, 800, 'birch', 40);     // 桦树林
-                
-                // 3. 稀疏森林/树丛
-                this.createSparseForest(-3000, 0, 1200, 800, 'oak', 25);        // 稀疏橡树
-                this.createSparseForest(0, -2800, 1000, 600, 'pine', 20);       // 稀疏松树
-                this.createSparseForest(1000, 3000, 800, 600, 'palm', 15);      // 稀疏棕榈
-                
-                // 4. 河流沿岸植被（柳树效果）
-                this.createRiverSideVegetation();
-                
-                // 5. 散布的孤立树木（真实感）
-                for (let i = 0; i < 100; i++) {
-                    const x = (Math.random() - 0.5) * 7000;
-                    const z = (Math.random() - 0.5) * 7000;
-                    const treeType = ['pine', 'oak', 'birch', 'palm'][Math.floor(Math.random() * 4)];
-                    this.createTree(x, z, treeType);
+                const m = this.environmentConfig.treeDensityMultiplier;
+                this.createDenseForest(-2500, -2000, 800, 600, 'pine', Math.round(80*m));
+                this.createDenseForest(1800, 1500, 700, 500, 'oak', Math.round(70*m));
+                this.createMediumForest(-1000, 2200, 900, 700, 'mixed', Math.round(45*m));
+                this.createMediumForest(2200, -800, 600, 800, 'birch', Math.round(40*m));
+                this.createSparseForest(-3000, 0, 1200, 800, 'oak', Math.round(25*m));
+                this.createSparseForest(0, -2800, 1000, 600, 'pine', Math.round(20*m));
+                this.createSparseForest(1000, 3000, 800, 600, 'palm', Math.round(15*m));
+                for (let i = 0; i < Math.round(100*m); i++) {
+                    const x = (Math.random()-0.5)*7000;
+                    const z = (Math.random()-0.5)*7000;
+                    const treeType = ['pine','oak','birch','palm'][Math.floor(Math.random()*4)];
+                    this.createTree(x,z,treeType);
                 }
             }
 
@@ -862,81 +1038,70 @@
                 }
             }
 
-            // 河流沿岸植被
-            createRiverSideVegetation() {
-                // 沿主河流分布柳树状植被
-                const riverPoints = [
-                    [-2000, -1000], [-1000, -500], [0, 0], [1000, 500], [2000, 1000]
+            // === 湖泊系统（替换原先的河流系统） ===
+            createLakes() {
+                // 创建多个不同大小与形状的湖泊
+                const lakeConfigs = [
+                    { x: -1500, z: -1200, radius: 350, color: 0x3A87BD }, // 大湖
+                    { x: 1200, z: 800, radius: 250, color: 0x357EBA },   // 中型湖
+                    { x: 400, z: -1400, radius: 180, color: 0x2F6FAF },  // 中小湖
+                    { x: -800, z: 1600, radius: 200, color: 0x337BB5 },  // 森林湖
+                    { x: 1800, z: -600, radius: 150, color: 0x2E75AA }   // 丘陵湖
                 ];
-                
-                riverPoints.forEach((point, index) => {
-                    if (index < riverPoints.length - 1) {
-                        const [x1, z1] = point;
-                        const [x2, z2] = riverPoints[index + 1];
-                        
-                        // 沿河流两岸种植
-                        for (let i = 0; i < 20; i++) {
-                            const t = i / 19;
-                            const riverX = x1 + (x2 - x1) * t;
-                            const riverZ = z1 + (z2 - z1) * t;
-                            
-                            // 河流两侧
-                            const offset = 80 + Math.random() * 40;
-                            this.createTree(riverX + offset, riverZ, 'birch'); // 右岸
-                            this.createTree(riverX - offset, riverZ, 'birch'); // 左岸
-                        }
-                    }
-                });
-            }
 
-            createRivers() {
-                // 创建更明显美丽的河流系统
-                this.createRiver(-2000, -1000, 2000, 1000, 60, 0x4169E1); // 更宽更蓝的主河
-                this.createRiver(-1000, -2000, 1000, 2000, 40, 0x6495ED); // 天蓝色支流1
-                this.createRiver(0, -1500, 0, 1500, 45, 0x4682B4);        // 钢蓝色支流2
-                
-                // 添加一些美丽的小溪
-                for (let i = 0; i < 5; i++) {
-                    const x1 = (Math.random() - 0.5) * 4000;
-                    const z1 = (Math.random() - 0.5) * 4000;
-                    const x2 = x1 + (Math.random() - 0.5) * 1000;
-                    const z2 = z1 + (Math.random() - 0.5) * 1000;
-                    this.createRiver(x1, z1, x2, z2, 20, 0x87CEEB); // 天蓝色小溪
+                lakeConfigs.forEach(cfg => this.createLake(cfg.x, cfg.z, cfg.radius, cfg.color));
+
+                // 生成一些随机小湖/池塘
+                for (let i = 0; i < 6; i++) {
+                    const x = (Math.random() - 0.5) * 6000;
+                    const z = (Math.random() - 0.5) * 6000;
+                    const r = 80 + Math.random() * 140;
+                    this.createLake(x, z, r, 0x2F6FAF);
                 }
             }
 
-            createRiver(x1, z1, x2, z2, width, color) {
-                const length = Math.sqrt((x2 - x1) ** 2 + (z2 - z1) ** 2);
-                const riverGeometry = new THREE.PlaneGeometry(width, length, 20, 50);
-                
-                // 添加轻微的波浪效果
-                const vertices = riverGeometry.attributes.position.array;
-                for (let i = 0; i < vertices.length; i += 3) {
-                    vertices[i + 2] += Math.sin(vertices[i] * 0.05) * 1; // 轻微波浪
+            createLake(centerX, centerZ, radius, color) {
+                // 使用细分圆形并随机扰动顶点制造自然外形
+                const segments = 48;
+                const geometry = new THREE.CircleGeometry(radius, segments);
+                const pos = geometry.attributes.position;
+                for (let i = 0; i < pos.count; i++) {
+                    if (i === 0) continue; // 跳过中心点
+                    const vx = pos.getX(i);
+                    const vy = pos.getY(i);
+                    const r = Math.sqrt(vx * vx + vy * vy);
+                    const deform = 1 + (Math.random() - 0.5) * 0.15; // 轻微形变
+                    pos.setX(i, vx * deform);
+                    pos.setY(i, vy * deform);
                 }
-                riverGeometry.attributes.position.needsUpdate = true;
-                
-                const riverMaterial = new THREE.MeshLambertMaterial({ 
-                    color: color,
+                pos.needsUpdate = true;
+
+                // 添加轻微波浪法线效果（顶点抖动可选）
+                geometry.computeVertexNormals();
+
+                const material = new THREE.MeshLambertMaterial({
+                    color,
                     transparent: true,
-                    opacity: 0.85,
+                    opacity: 0.9,
                     side: THREE.DoubleSide
                 });
-                
-                const river = new THREE.Mesh(riverGeometry, riverMaterial);
-                river.rotation.x = -Math.PI / 2;
-                river.position.set(
-                    (x1 + x2) / 2,
-                    -45, // 提高高度，更明显
-                    (z1 + z2) / 2
-                );
-                
-                // 计算河流角度
-                const angle = Math.atan2(z2 - z1, x2 - x1);
-                river.rotation.y = angle - Math.PI / 2;
-                
-                river.receiveShadow = true;
-                this.scene.add(river);
+
+                const lake = new THREE.Mesh(geometry, material);
+                lake.rotation.x = -Math.PI / 2;
+                lake.position.set(centerX, -46, centerZ); // 与地面稍微凹陷一点
+                lake.receiveShadow = true;
+                this.scene.add(lake);
+
+                // 环湖植被：在湖泊外圈随机生成树木和灌木
+                const ringCount = Math.floor(radius / 20);
+                for (let i = 0; i < ringCount; i++) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const dist = radius + 30 + Math.random() * 120;
+                    const x = centerX + Math.cos(angle) * dist;
+                    const z = centerZ + Math.sin(angle) * dist;
+                    const types = ['birch', 'oak', 'pine'];
+                    this.createTree(x, z, types[Math.floor(Math.random() * types.length)]);
+                }
             }
 
             createTree(x, z, treeType = 'oak') {
@@ -1099,69 +1264,322 @@
                 this.scene.add(treeGroup);
             }
 
-            createRoads() {
-                // 创建主要公路网络
-                this.createRoad(-3000, 0, 3000, 0, 20, 0x2F2F2F);     // 东西主干道
-                this.createRoad(0, -3000, 0, 3000, 20, 0x2F2F2F);     // 南北主干道
-                this.createRoad(-1500, -1500, 1500, 1500, 15, 0x404040); // 对角线道路
-                this.createRoad(-1500, 1500, 1500, -1500, 15, 0x404040); // 另一条对角线
-                
-                // 添加一些小路
-                for (let i = 0; i < 8; i++) {
-                    const x1 = (Math.random() - 0.5) * 4000;
-                    const z1 = (Math.random() - 0.5) * 4000;
-                    const x2 = x1 + (Math.random() - 0.5) * 1000;
-                    const z2 = z1 + (Math.random() - 0.5) * 1000;
-                    this.createRoad(x1, z1, x2, z2, 8, 0x555555);
+            // === Extra Environment Helpers ===
+            createBushCluster(x,z,count=8){
+                for (let i=0;i<count;i++){
+                    const r = 2 + Math.random()*2.5;
+                    const g = new THREE.SphereGeometry(r, 8, 6);
+                    const c = new THREE.Color().setHSL(0.28 + Math.random()*0.08, 0.6, 0.35+Math.random()*0.2);
+                    const m = new THREE.MeshLambertMaterial({ color: c });
+                    const bush = new THREE.Mesh(g,m);
+                    const ang = Math.random()*Math.PI*2;
+                    const dist = Math.random()*8;
+                    bush.position.set(x + Math.cos(ang)*dist, -50 + r*0.5, z + Math.sin(ang)*dist);
+                    bush.castShadow = true;
+                    this.scene.add(bush);
                 }
             }
 
-            createRoad(x1, z1, x2, z2, width, color) {
-                const length = Math.sqrt((x2 - x1) ** 2 + (z2 - z1) ** 2);
-                const roadGeometry = new THREE.PlaneGeometry(width, length, 4, 20);
-                const roadMaterial = new THREE.MeshLambertMaterial({ 
-                    color: color
-                });
-                
-                const road = new THREE.Mesh(roadGeometry, roadMaterial);
-                road.rotation.x = -Math.PI / 2;
-                road.position.set(
-                    (x1 + x2) / 2,
-                    -48, // 稍高于地面，低于河流
-                    (z1 + z2) / 2
-                );
-                
-                // 计算公路角度
-                const angle = Math.atan2(z2 - z1, x2 - x1);
-                road.rotation.y = angle - Math.PI / 2;
-                
-                road.receiveShadow = true;
-                this.scene.add(road);
-                
-                // 添加道路标线
-                this.createRoadLines(x1, z1, x2, z2, width);
+            createRocks(count){
+                for (let i=0;i<count;i++){
+                    const s = 3 + Math.random()*10;
+                    const g = new THREE.DodecahedronGeometry(s, 0);
+                    const col = new THREE.Color().setHSL(0.08 + Math.random()*0.05, 0.2, 0.25 + Math.random()*0.2);
+                    const m = new THREE.MeshLambertMaterial({ color: col });
+                    const rock = new THREE.Mesh(g,m);
+                    rock.position.set((Math.random()-0.5)*7600, -50 + s*0.5, (Math.random()-0.5)*7600);
+                    rock.rotation.y = Math.random()*Math.PI*2;
+                    rock.castShadow = true;
+                    this.scene.add(rock);
+                }
             }
 
-            createRoadLines(x1, z1, x2, z2, width) {
-                const length = Math.sqrt((x2 - x1) ** 2 + (z2 - z1) ** 2);
-                const lineGeometry = new THREE.PlaneGeometry(2, length, 1, 10);
-                const lineMaterial = new THREE.MeshLambertMaterial({ 
-                    color: 0xFFFFFF // 白色标线
-                });
-                
-                const roadLine = new THREE.Mesh(lineGeometry, lineMaterial);
-                roadLine.rotation.x = -Math.PI / 2;
-                roadLine.position.set(
-                    (x1 + x2) / 2,
-                    -47.5, // 稍高于道路
-                    (z1 + z2) / 2
-                );
-                
-                const angle = Math.atan2(z2 - z1, x2 - x1);
-                roadLine.rotation.y = angle - Math.PI / 2;
-                
-                this.scene.add(roadLine);
+            createGrassPatches(count){
+                for (let i=0;i<count;i++){
+                    const blades = new THREE.Group();
+                    const baseX = (Math.random()-0.5)*7600;
+                    const baseZ = (Math.random()-0.5)*7600;
+                    const bladeCount = 4 + Math.random()*6;
+                    for (let b=0;b<bladeCount;b++){
+                        const h = 4 + Math.random()*6;
+                        const geo = new THREE.CylinderGeometry(0.05,0.25,h,4,1);
+                        const mat = new THREE.MeshLambertMaterial({ color: 0x3c8d1e });
+                        const blade = new THREE.Mesh(geo,mat);
+                        blade.position.set((Math.random()-0.5)*3, -50 + h/2, (Math.random()-0.5)*3);
+                        blade.rotation.x = (Math.random()-0.5)*0.4;
+                        blade.rotation.z = (Math.random()-0.5)*0.4;
+                        blades.add(blade);
+                    }
+                    blades.position.set(baseX,0,baseZ);
+                    this.scene.add(blades);
+                }
             }
+
+            createBirdFlock(){
+                const flock = new THREE.Group();
+                const count = 12 + Math.floor(Math.random()*8);
+                for (let i=0;i<count;i++){
+                    const geo = new THREE.ConeGeometry(1.2,3,4);
+                    const mat = new THREE.MeshBasicMaterial({ color: 0x222222 });
+                    const bird = new THREE.Mesh(geo,mat);
+                    bird.rotation.x = Math.PI/2;
+                    bird.position.set((Math.random()-0.5)*30,(Math.random()-0.5)*10,(Math.random()-0.5)*30);
+                    flock.add(bird);
+                }
+                flock.position.set((Math.random()-0.5)*6000,150 + Math.random()*250,(Math.random()-0.5)*6000);
+                flock.userData = { speed: 20 + Math.random()*15, dir: new THREE.Vector3(Math.random()-0.5,0,Math.random()-0.5).normalize() };
+                this.scene.add(flock);
+                if(!this.flocks) this.flocks=[];
+                this.flocks.push(flock);
+            }
+
+            updateFlocks(delta){
+                if(!this.flocks) return;
+                this.flocks.forEach(f=>{
+                    f.position.addScaledVector(f.userData.dir, f.userData.speed*delta);
+                    f.position.y += Math.sin(Date.now()*0.001 + f.position.x*0.01)*0.2;
+                    const limit = 4000;
+                    if (f.position.x > limit) f.position.x = -limit;
+                    if (f.position.x < -limit) f.position.x = limit;
+                    if (f.position.z > limit) f.position.z = -limit;
+                    if (f.position.z < -limit) f.position.z = limit;
+                });
+            }
+
+            createSoilPatches(count){
+                for (let i=0;i<count;i++){
+                    const r = 40 + Math.random()*120;
+                    const geo = new THREE.CircleGeometry(r, 24);
+                    const posAttr = geo.attributes.position;
+                    for (let v=0; v<posAttr.count; v++) { // 轻微扰动边缘
+                        if (v===0) continue;
+                        const x = posAttr.getX(v); const y = posAttr.getY(v);
+                        const dist = Math.hypot(x,y);
+                        const factor = 1 + (Math.random()-0.5)*0.25;
+                        posAttr.setX(v, x * factor);
+                        posAttr.setY(v, y * factor);
+                    }
+                    posAttr.needsUpdate = true;
+                    const colors = [0x7b5e31,0x6b4a1f,0xa07547,0x8a6235];
+                    const mat = new THREE.MeshLambertMaterial({ color: colors[Math.floor(Math.random()*colors.length)], side: THREE.DoubleSide, opacity: 0.92, transparent: true });
+                    const patch = new THREE.Mesh(geo, mat);
+                    patch.rotation.x = -Math.PI/2;
+                    patch.position.set((Math.random()-0.5)*7600, -49.9, (Math.random()-0.5)*7600);
+                    patch.receiveShadow = true;
+                    this.scene.add(patch);
+                }
+            }
+
+            // ================= Tanks =================
+            getGroundHeight(x,z){
+                if(!this.ground) return -50;
+                this.raycaster.set(new THREE.Vector3(x, 500, z), new THREE.Vector3(0,-1,0));
+                const hit = this.raycaster.intersectObject(this.ground, false);
+                return hit.length ? hit[0].point.y : -50;
+            }
+
+            alignTankToGround(group){
+                // 计算履带/底座假定基准：我们将 group 的局部原点视为底座中心高度 (approx hull center -2.5)
+                // 使用射线获得真实地面，然后设置 group.position.y 使底面离地面略微“悬空” 0.4
+                const gY = this.getGroundHeight(group.position.x, group.position.z);
+                // 由于 hull.position.y = -50 + 2.5 (在构造中)，group.position.y 初始为 0 时 hull 底部在 -50
+                // 因此当 group.position.y 偏移 d 时，底部 = -50 + d
+                // 我们希望底部 = gY + 1.0 （抬离地面更高）
+                const desiredBottom = gY + 1.0;
+                const d = desiredBottom - (-50);
+                group.position.y = d;
+            }
+            createTanks(count=10){
+                for (let i=0;i<count;i++) {
+                    const x = (Math.random()-0.5)*7000;
+                    const z = (Math.random()-0.5)*7000;
+                    // 避免离玩家出生点太近
+                    if (Math.hypot(x, z) < 400) { i--; continue; }
+                    const tank = this.createTank(x, z);
+                    this.tanks.push(tank);
+                }
+                // 创建后统一对齐一次（冗余安全）
+                this.tanks.forEach(t=> this.alignTankToGround(t.mesh));
+            }
+
+            createTank(x,z){
+                const group = new THREE.Group();
+                const palette = [0x4d5a34,0x556b2f,0x6e5b2e,0x5c6133];
+                const baseColor = palette[Math.floor(Math.random()*palette.length)];
+                const baseMat = new THREE.MeshStandardMaterial({ color: baseColor, metalness:0.25, roughness:0.75 });
+
+                // === 矩形底座 ===
+                const hull = new THREE.Mesh(new THREE.BoxGeometry(30,5,46), baseMat);
+                hull.position.y = -50 + 2.5;
+                hull.castShadow = true; hull.receiveShadow = true;
+                group.add(hull);
+
+                // === 履带与5个负重轮（每侧） ===
+                const trackMat = new THREE.MeshStandardMaterial({ color:0x1d1d1d, roughness:0.95 });
+                for (let side of [-1,1]){
+                    const track = new THREE.Mesh(new THREE.BoxGeometry(4,3.2,46), trackMat);
+                    track.position.set(side*(30/2+3), -50+1.6, 0);
+                    track.castShadow = true; group.add(track);
+                }
+                const wheelGeo = new THREE.CylinderGeometry(2.2,2.2,1.4,18);
+                const wheelMat = new THREE.MeshStandardMaterial({ color:0x3a3a3a, metalness:0.4, roughness:0.6 });
+                const wheelZs = [-14,-7,0,7,14];
+                for (let side of [-1,1]){
+                    wheelZs.forEach(zv=>{
+                        const w = new THREE.Mesh(wheelGeo, wheelMat);
+                        w.rotation.z = Math.PI/2;
+                        w.position.set(side*(30/2+3), -50+1.2, zv);
+                        group.add(w);
+                    });
+                }
+
+                // === 圆柱炮塔 ===
+                const turretHeight = 4;
+                const turret = new THREE.Mesh(new THREE.CylinderGeometry(10,10,turretHeight,24), baseMat);
+                const turretY = -50 + 2.5 + 2.5 + turretHeight/2; // 底座顶面 + 炮塔一半高度
+                turret.position.set(0, turretY, 0); // 竖直放置（不再旋转）
+                turret.castShadow = true; turret.receiveShadow = true;
+                group.add(turret);
+
+                // === 炮管（从炮塔中心 35° 抬起） ===
+                const gunPivot = new THREE.Group();
+                gunPivot.position.set(0, turretY, 0);
+                group.add(gunPivot);
+                const barrelMat = new THREE.MeshStandardMaterial({ color:0x2d2d2d, metalness:0.6, roughness:0.45 });
+                const barrelLength = 26;
+                const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.6,0.85,barrelLength,18), barrelMat);
+                // 先让轴沿 Z
+                barrel.rotation.x = Math.PI/2; // Y -> Z
+                barrel.position.z = barrelLength/2 + 2; // 从塔中心向前
+                gunPivot.add(barrel);
+                // 炮口内膛
+                const inner = new THREE.Mesh(new THREE.CylinderGeometry(0.4,0.4,2,12), new THREE.MeshStandardMaterial({ color:0x050505, metalness:0.3, roughness:0.9 }));
+                inner.rotation.x = Math.PI/2;
+                inner.position.z = barrelLength + 2;
+                gunPivot.add(inner);
+                // 抬升角度（负号使其朝上）
+                gunPivot.rotation.x = -THREE.MathUtils.degToRad(35);
+
+                // === 红色高亮指示箭头（保持） ===
+                const arrowGroup = new THREE.Group();
+                const arrowMat = new THREE.MeshBasicMaterial({ color:0xff2222 });
+                const cone = new THREE.Mesh(new THREE.ConeGeometry(3.2,9,18), arrowMat);
+                cone.rotation.x = Math.PI; // 指向下
+                arrowGroup.add(cone);
+                const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.45,0.45,4.5,12), arrowMat);
+                stem.position.y = -6.5;
+                arrowGroup.add(stem);
+                arrowGroup.position.set(0, turretY + 12, 0);
+                arrowGroup.userData = { pulsePhase: Math.random()*Math.PI*2 };
+                group.add(arrowGroup);
+
+                group.position.set(x,0,z);
+                // 贴合地面高度
+                this.alignTankToGround(group);
+                this.scene.add(group);
+                return { mesh: group, alive: true, radius: 16, indicator: arrowGroup };
+            }
+
+            updateTankIndicators(delta){
+                if(!this.tanks) return;
+                const t = performance.now()*0.001;
+                this.tanks.forEach(tank=>{
+                    if(!tank.alive) {
+                        if(tank.indicator) tank.indicator.visible=false;
+                        return;
+                    }
+                    if(tank.indicator){
+                        tank.indicator.visible = true;
+                        tank.indicator.lookAt(this.camera.position);
+                        const phase = t*4 + (tank.indicator.userData.pulsePhase||0);
+                        const s = 1 + Math.sin(phase)*0.25;
+                        tank.indicator.scale.set(s,s,s);
+                    }
+                });
+            }
+
+            createExplosion(position){
+                const group = new THREE.Group();
+                group.position.copy(position);
+                this.scene.add(group);
+                // 静态火花 + 原地燃烧火焰
+                const flameCount = 26;
+                for (let i=0;i<flameCount;i++) {
+                    const size = 0.9 + Math.random()*1.4;
+                    const geo = new THREE.SphereGeometry(size, 6, 6);
+                    const col = 0xffa533;
+                    const mat = new THREE.MeshBasicMaterial({ color: col, transparent:true, opacity:1 });
+                    const p = new THREE.Mesh(geo, mat);
+                    // 静止：dir = 0
+                    p.userData = { dir: new THREE.Vector3(0,0,0), life: 0.65 + Math.random()*0.5, age:0, flame:true };
+                    // 随机分布在爆心轻微半径内
+                    const ang = Math.random()*Math.PI*2; const rad = Math.random()*3.2;
+                    p.position.set(Math.cos(ang)*rad, Math.random()*2, Math.sin(ang)*rad);
+                    group.add(p);
+                }
+                // 轻烟向上（很慢，几乎原地）
+                for (let i=0;i<12;i++) {
+                    const geo = new THREE.SphereGeometry(2+Math.random()*2.5, 8,6);
+                    const mat = new THREE.MeshBasicMaterial({ color: 0x2b2b2b, transparent:true, opacity:0.55 });
+                    const s = new THREE.Mesh(geo, mat);
+                    s.userData = { dir: new THREE.Vector3(0, (0.15+Math.random()*0.25), 0), life: 2.2 + Math.random()*0.8, age:0, smoke:true };
+                    const ang = Math.random()*Math.PI*2; const rad = Math.random()*2.5;
+                    s.position.set(Math.cos(ang)*rad, 0.4+Math.random()*1.2, Math.sin(ang)*rad);
+                    group.add(s);
+                }
+                const animate = () => {
+                    const dt = 0.016;
+                    group.children.forEach(c=>{
+                        if (!c.userData) return;
+                        c.userData.age += dt;
+                        const ratio = c.userData.age / c.userData.life;
+                        // 仅烟缓慢上升
+                        if (c.userData.smoke) c.position.add(c.userData.dir.clone().multiplyScalar(dt));
+                        if (c.material) {
+                            if (c.userData.flame) {
+                                c.material.opacity = Math.max(0, 1 - ratio*1.2);
+                                c.scale.multiplyScalar(1 + dt*0.8);
+                            } else if (c.userData.smoke) {
+                                c.material.opacity = Math.max(0, 0.55 * (1 - ratio));
+                                c.scale.multiplyScalar(1 + dt*0.35);
+                            }
+                        }
+                    });
+                    // 清理
+                    for (let i=group.children.length-1;i>=0;i--) {
+                        const ch = group.children[i];
+                        if (ch.userData && ch.userData.age >= ch.userData.life) {
+                            group.remove(ch); ch.geometry.dispose(); ch.material.dispose();
+                        }
+                    }
+                    if (group.children.length>0) requestAnimationFrame(animate); else this.scene.remove(group);
+                };
+                animate();
+            }
+
+            createScorchMark(x,z){
+                const r = 18 + Math.random()*6;
+                const geo = new THREE.CircleGeometry(r, 20);
+                const mat = new THREE.MeshBasicMaterial({ color: 0x1d1b1a, transparent:true, opacity:0.55, side:THREE.DoubleSide });
+                const m = new THREE.Mesh(geo, mat);
+                m.rotation.x = -Math.PI/2;
+                m.position.set(x, -49.8, z);
+                this.scene.add(m);
+                // 渐隐
+                const start = performance.now();
+                const fade = () => {
+                    const t = (performance.now()-start)/8000;
+                    if (t<1) {
+                        mat.opacity = 0.55*(1-t);
+                        requestAnimationFrame(fade);
+                    } else {
+                        this.scene.remove(m); geo.dispose(); mat.dispose();
+                    }
+                };
+                requestAnimationFrame(fade);
+            }
+
+            // （公路系统已移除）
 
             createBuildings() {
                 // 创建城镇区域
@@ -1707,6 +2125,7 @@
 
                 // Update propeller animation
                 this.updatePropeller(deltaTime);
+                // bird flocks removed
             }
 
             updateCamera() {
@@ -1784,6 +2203,10 @@
                 this.updateCamera();
                 this.updateClouds(deltaTime);
                 this.updatePropeller(deltaTime);
+                // Weapon updates
+                this.tryFireGuns(deltaTime);
+                this.updateBullets(deltaTime);
+                this.updateTankIndicators(deltaTime);
                 
                 // === 更新GLB模型动画 ===
                 if (this.modelAnimationMixer) {

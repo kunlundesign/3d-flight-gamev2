@@ -14,6 +14,7 @@ export class Player {
   private leftGunOffset: THREE.Vector3 = new THREE.Vector3(6, -0.5, -7);
   private rightGunOffset: THREE.Vector3 = new THREE.Vector3(6, -0.5, 7);
   private bombBayOffset: THREE.Vector3 = new THREE.Vector3(0, -2, 0);
+  private noseGunOffset: THREE.Vector3 = new THREE.Vector3(7.5, 0, 0);
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
@@ -72,10 +73,19 @@ export class Player {
     propeller.position.x = 6;
     propeller.castShadow = true;
 
+  // Nose gun visual (simple small cylinder)
+  const noseGunGeometry = new THREE.CylinderGeometry(0.12, 0.12, 1.6, 8);
+  const noseGunMaterial = new THREE.MeshLambertMaterial({ color: 0x555500 });
+  const noseGun = new THREE.Mesh(noseGunGeometry, noseGunMaterial);
+  noseGun.rotation.z = Math.PI / 2;
+  noseGun.position.set(this.noseGunOffset.x - 0.5, this.noseGunOffset.y, this.noseGunOffset.z);
+  noseGun.castShadow = true;
+
     this.aircraft.add(fuselage);
     this.aircraft.add(wings);
     this.aircraft.add(tail);
     this.aircraft.add(propeller);
+  this.aircraft.add(noseGun);
     this.aircraft.add(leftGun);
     this.aircraft.add(rightGun);
 
@@ -161,6 +171,10 @@ export class Player {
     return this.bombBayOffset.clone().applyQuaternion(this.aircraft.quaternion).add(this.aircraft.position);
   }
 
+  public getNoseGunPosition(): THREE.Vector3 {
+    return this.noseGunOffset.clone().applyQuaternion(this.aircraft.quaternion).add(this.aircraft.position);
+  }
+
   public takeDamage(amount: number): void {
     this.health -= amount;
     if (this.health <= 0) {
@@ -195,7 +209,7 @@ export class Player {
     this.scene.remove(this.aircraft);
     
     // Dispose of geometries and materials
-    this.aircraft.traverse((child) => {
+  this.aircraft.traverse((child: THREE.Object3D) => {
       if (child instanceof THREE.Mesh) {
         child.geometry.dispose();
         if (child.material instanceof THREE.Material) {

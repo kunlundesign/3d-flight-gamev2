@@ -11,9 +11,9 @@
     "hp": 100
   },
   "weapons": {
-    "rate": 10,
-    "bulletSpeed": 400,
-    "damage": 20,
+    "rate": 18,
+    "bulletSpeed": 520,
+    "damage": 18,
     "weakspotMultiplier": 2
   },
   "tanks": {

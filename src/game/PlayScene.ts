@@ -21,6 +21,7 @@ export class PlayScene implements Scene {
   private weaponSystem!: WeaponSystem;
   private score: number = 0;
   private kills: number = 0;
+  private prevShooting: boolean = false;
 
   constructor() {
     this.sceneManager = SceneManager.getInstance();
@@ -241,7 +242,7 @@ export class PlayScene implements Scene {
     
     // Handle shooting
     if (inputState.shoot) {
-      console.log('🎯 Shoot input detected');
+      if (!this.prevShooting) console.log('🔫 Shooting started');
       const targets: Target[] = this.tanks.filter(tank => tank.isAlive());
       // 获取飞机两翼机枪发射点和方向
       const gunPositions = this.player.getGunPositions();
@@ -253,6 +254,9 @@ export class PlayScene implements Scene {
           hitAny = true;
         }
       }
+  // 机头机枪实体子弹
+  const nosePos = this.player.getNoseGunPosition();
+  this.weaponSystem.shootNoseGun(nosePos, forward);
       if (hitAny) {
         console.log('🎯 Hit target!');
         // Add score
@@ -265,7 +269,10 @@ export class PlayScene implements Scene {
           this.spawnTanks(1);
         }
       }
+    } else if (this.prevShooting) {
+      console.log('🛑 Shooting stopped');
     }
+    this.prevShooting = inputState.shoot;
 
     // Handle bombing
     if (inputState.bomb) {
@@ -282,6 +289,10 @@ export class PlayScene implements Scene {
     // Update bombs
     const targets: Target[] = this.tanks.filter(tank => tank.isAlive());
     this.weaponSystem.updateBombs(deltaTime, targets);
+  // 更新机头机枪子弹
+  this.weaponSystem.updateBullets(deltaTime, targets);
+  // 更新弹壳与 tracer 粒子
+  this.weaponSystem.postUpdate(deltaTime);
     
     // Remove destroyed tanks after bomb explosions
     const aliveCountBefore = this.tanks.filter(tank => tank.isAlive()).length;
@@ -326,6 +337,16 @@ export class PlayScene implements Scene {
     
     // Smooth camera movement
     this.camera.position.lerp(targetCameraPos, 0.1);
+    // 依据热量添加轻微抖动
+    if (this.weaponSystem) {
+      const heat = this.weaponSystem.getHeatLevel();
+      if (heat > 0.01) {
+        const shakeAmp = heat * 0.8; // 最大抖动幅度
+        this.camera.position.x += (Math.random()-0.5) * shakeAmp;
+        this.camera.position.y += (Math.random()-0.5) * shakeAmp * 0.5;
+        this.camera.position.z += (Math.random()-0.5) * shakeAmp;
+      }
+    }
     this.camera.lookAt(playerPos);
   }
 
