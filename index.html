@@ -513,18 +513,19 @@
                 // Create enhanced P-51 Mustang style fighter aircraft with premium materials
                 const planeGroup = new THREE.Group();
                 
-                // === PREMIUM MATERIALS ===
-                const fuselageMaterial = new THREE.MeshStandardMaterial({ 
-                    color: 0xD3D3D3, // 新机身浅灰
-                    metalness: 0.9,
-                    roughness: 0.35,
-                    envMapIntensity: 1.0
+                // === MATERIALS ===
+                // Wood material (fuselage & tail surfaces).
+                const fuselageMaterial = new THREE.MeshStandardMaterial({
+                    color: 0x8b5a2b, // 木质棕色
+                    metalness: 0.05,
+                    roughness: 0.85
                 });
-                
-                const wingMaterial = new THREE.MeshStandardMaterial({ 
-                    color: 0xE14A32, // 新机翼红橙色
-                    metalness: 0.85,
-                    roughness: 0.45
+
+                // Keep wings colorized for visual contrast (can switch to wood by changing color to 0x8b5a2b if desired)
+                const wingMaterial = new THREE.MeshStandardMaterial({
+                    color: 0xE14A32,
+                    metalness: 0.2,
+                    roughness: 0.6
                 });
                 
                 const glassMaterial = new THREE.MeshStandardMaterial({ 
@@ -552,20 +553,18 @@
                 fuselage.receiveShadow = true;
                 planeGroup.add(fuselage);
                 
-                // === DETAILED NOSE CONE (机鼻) ===
-                const noseGeometry = new THREE.ConeGeometry(1.4, 4, 16);
+                // === DETAILED NOSE CONE + COWLING (木质 与 金属螺旋桨形成对比) ===
+                const noseGeometry = new THREE.ConeGeometry(1.4, 4, 20);
                 const nose = new THREE.Mesh(noseGeometry, fuselageMaterial);
                 nose.position.set(0, 0, 10);
                 nose.rotation.x = Math.PI / 2;
                 nose.castShadow = true;
-                nose.receiveShadow = true;
                 planeGroup.add(nose);
-                
-                // === ENGINE COWLING (发动机整流罩) ===
-                const cowlingGeometry = new THREE.CylinderGeometry(1.6, 1.4, 3, 12);
-                const cowling = new THREE.Mesh(cowlingGeometry, darkMetalMaterial);
+
+                const cowlingGeometry = new THREE.CylinderGeometry(1.55, 1.45, 2.6, 20);
+                const cowling = new THREE.Mesh(cowlingGeometry, fuselageMaterial);
                 cowling.rotation.x = Math.PI / 2;
-                cowling.position.set(0, 0, 6.5);
+                cowling.position.set(0, 0, 7.0);
                 cowling.castShadow = true;
                 planeGroup.add(cowling);
                 
@@ -600,27 +599,36 @@
                     planeGroup.add(wingTip);
                 }
                 
-                // === TAIL SECTION (尾翼) ===
-                const tailGeometry = new THREE.CylinderGeometry(0.6, 0.4, 4, 8);
-                const tail = new THREE.Mesh(tailGeometry, fuselageMaterial);
-                tail.rotation.x = Math.PI / 2;
-                tail.position.set(0, 0, -8);
-                tail.castShadow = true;
-                planeGroup.add(tail);
-                
-                // === HORIZONTAL STABILIZER (水平尾翼) ===
-                const hStabGeometry = new THREE.BoxGeometry(8, 1, 2);
-                const hStab = new THREE.Mesh(hStabGeometry, wingMaterial);
-                hStab.position.set(0, 0, -10);
-                hStab.castShadow = true;
-                planeGroup.add(hStab);
-                
-                // === VERTICAL STABILIZER (垂直尾翼) ===
-                const vStabGeometry = new THREE.BoxGeometry(1, 4, 3);
-                const vStab = new THREE.Mesh(vStabGeometry, wingMaterial);
-                vStab.position.set(0, 2, -10);
-                vStab.castShadow = true;
-                planeGroup.add(vStab);
+                // === SLIM AERODYNAMIC TAIL SECTION (重新设计尾段 更薄更流线) ===
+                // Tapered tail boom (longer & thinner)
+                const tailBoomGeometry = new THREE.CylinderGeometry(0.45, 0.25, 6, 20);
+                const tailBoom = new THREE.Mesh(tailBoomGeometry, fuselageMaterial);
+                tailBoom.rotation.x = Math.PI / 2;
+                tailBoom.position.set(0, 0, -10);
+                tailBoom.castShadow = true;
+                planeGroup.add(tailBoom);
+
+                // Horizontal stabilizer: very thin, slight taper using scaled box pieces for subtle shape
+                const hStabGroup = new THREE.Group();
+                for (let side = -1; side <= 1; side += 2) {
+                    const span = 3.2; // half span
+                    const hSectionGeo = new THREE.BoxGeometry(span, 0.12, 0.9);
+                    const hSection = new THREE.Mesh(hSectionGeo, fuselageMaterial);
+                    hSection.position.set(side * (span * 0.55), 0, 0);
+                    hSection.rotation.z = side * THREE.MathUtils.degToRad(2); // slight dihedral
+                    hSection.castShadow = true;
+                    hStabGroup.add(hSection);
+                }
+                hStabGroup.position.set(0, 0.1, -13);
+                planeGroup.add(hStabGroup);
+
+                // Vertical stabilizer: thin swept fin
+                const vFinGeometry = new THREE.BoxGeometry(0.25, 1.8, 1.2);
+                const vFin = new THREE.Mesh(vFinGeometry, fuselageMaterial);
+                vFin.position.set(0, 0.95, -13);
+                vFin.rotation.x = THREE.MathUtils.degToRad(2);
+                vFin.castShadow = true;
+                planeGroup.add(vFin);
                 
                 // === ENHANCED PROPELLER ASSEMBLY ===
                 // Propeller spinner
@@ -719,34 +727,14 @@
                 tailWheel.castShadow = true;
                 planeGroup.add(tailWheel);
                 
-                // === REALISTIC ELLIPTICAL COCKPIT CANOPY (椭圆形驾驶舱座舱盖) ===
-                // 创建椭圆形座舱盖，与机身完美贴合
-                const canopyGeometry = new THREE.SphereGeometry(1, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2);
-                // 将球体压扁成椭圆形，符合真实战斗机设计
-                canopyGeometry.scale(2.4, 0.6, 1.8); // 前后拉长（Z轴），上下压扁（Y轴），左右适中（X轴）
-                
+                // === SIMPLE HALF-ELLIPSOID CANOPY (去掉框架 保留透明光滑半椭球) ===
+                const canopyGeometry = new THREE.SphereGeometry(1, 20, 14, 0, Math.PI * 2, 0, Math.PI / 2);
+                canopyGeometry.scale(2.2, 0.7, 1.6);
                 const canopy = new THREE.Mesh(canopyGeometry, glassMaterial);
-                canopy.position.set(0, 0.9, 0.5); // 降低高度，更好贴合机身
-                canopy.rotation.z = Math.PI / 2; // 沿Z轴旋转90度
+                canopy.position.set(0, 0.95, 0.6);
+                canopy.rotation.z = Math.PI / 2;
                 canopy.castShadow = true;
-                canopy.receiveShadow = true;
                 planeGroup.add(canopy);
-                
-                // === CANOPY FRAME (座舱盖框架) ===
-                // 添加座舱盖的金属框架，增加真实感
-                const frameGeometry = new THREE.TorusGeometry(1.4, 0.06, 4, 12);
-                frameGeometry.scale(1.7, 0.8, 1.3); // 匹配座舱盖的椭圆形状：前后拉长，左右适中
-                const frameMaterial = new THREE.MeshStandardMaterial({
-                    color: 0x404040,
-                    metalness: 0.8,
-                    roughness: 0.3
-                });
-                const frame = new THREE.Mesh(frameGeometry, frameMaterial);
-                frame.position.set(0, 0.9, 0.5);
-                frame.rotation.x = Math.PI / 2;
-                frame.rotation.z = Math.PI / 2; // 沿Z轴旋转90度，与座舱盖保持一致
-                frame.castShadow = true;
-                planeGroup.add(frame);
                 
                 // === COCKPIT INTERIOR (驾驶舱内部) - 调整位置 ===
                 const seatGeometry = new THREE.BoxGeometry(0.8, 0.4, 1.2);
