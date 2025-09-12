@@ -232,8 +232,9 @@
                 this.setupLighting();
                 this.createTerrain();
                 this.createClouds();
-                this.createDefaultAircraft();
-                this.createNoseCannons(); // 机头机炮
+                // 使用新的双翼机造型
+                this.createBiplaneAircraftDetailed({ scale:1.05 });
+                // 新模型包含上翼机枪，无需额外机头炮，如仍需可再次调用 createNoseCannons()
                 this.setupFileUpload();
                 this.setupKeyboardControls();
                 this.setupMouseControls(); // 鼠标射击
@@ -840,6 +841,88 @@
                 this.scene.add(this.aircraft);
                 // 如果默认飞机创建成功后添加机炮（若未在init里）
                 if (this.gunBarrels.length === 0) this.createNoseCannons();
+            }
+
+            // ===== New Detailed Biplane with Radial Engine & Cockpit Detail =====
+            createBiplaneAircraftDetailed(cfg = {}) {
+                const defaults = {
+                    scale: 1,
+                    fuselageLen: 28,
+                    fuselageW: 6,
+                    fuselageH: 6,
+                    radialCylCount: 9,
+                    radialRadius: 4.2,
+                    radialCylinderLen: 3.2,
+                    radialCylinderR: 1.0,
+                    radialCylinderTiltDeg: 7,
+                    wingSpanLower: 40,
+                    wingSpanUpperExtra: 4,
+                    wingChord: 10,
+                    wingGap: 8,
+                    wingStagger: 1.5,
+                    propBladeCount: 4
+                };
+                const c = Object.assign({}, defaults, cfg);
+                const G = new THREE.Group();
+                G.position.copy(this.playerPosition);
+
+                const mat = (col, r=0.6, m=0.05) => new THREE.MeshStandardMaterial({color: col, roughness: r, metalness: m});
+                const mWing = mat(0xd53c24, 0.5);
+                const mFuse = mat(0xbfc2c5, 0.7, 0.04);
+                const mDark = mat(0x4a4d50, 0.8, 0.08);
+                const mEngine = mat(0x222222, 0.55, 0.45);
+                const mCylinder = mat(0x2d2e30, 0.45, 0.55);
+                const mStrut = mat(0xb7b7b7, 0.35, 0.2);
+                const mGlass = new THREE.MeshStandardMaterial({ color:0x6faee8, transparent:true, opacity:0.55, roughness:0.1, metalness:0.0 });
+                const mLeather = mat(0x7a3b1c, 0.9, 0.05);
+                const mBelt = mat(0x3a3a3a, 0.7, 0.2);
+                const mGauge = mat(0x111111, 0.4, 0.4);
+                const mNeedle = mat(0xffdd55, 0.3, 0.2);
+                const mProp = mat(0x111111, 0.4, 0.25);
+                const mPropTip = mat(0xffe18a, 0.4, 0.2);
+
+                // Body merged
+                const segs = [];
+                const geoBody = new THREE.BoxGeometry(c.fuselageW, c.fuselageH, c.fuselageLen); segs.push(geoBody);
+                const tailLen = c.fuselageLen*0.30;
+                const geoTail = new THREE.ConeGeometry(c.fuselageW*0.55, tailLen, 10); geoTail.rotateX(Math.PI/2); geoTail.translate(0,0,-c.fuselageLen/2 - tailLen/2 + 2); segs.push(geoTail);
+                const geoNoseRing = new THREE.CylinderGeometry(c.fuselageW*0.55, c.fuselageW*0.55, 1.2, 24,1,true); geoNoseRing.rotateX(Math.PI/2); geoNoseRing.translate(0,0,c.fuselageLen/2 - 0.6); segs.push(geoNoseRing);
+                const merged = BufferGeometryUtils.mergeGeometries(segs,false);
+                const fuselage = new THREE.Mesh(merged, mFuse); fuselage.castShadow = true; fuselage.receiveShadow = true; G.add(fuselage);
+
+                // Radial engine
+                const engineHub = new THREE.Mesh(new THREE.CylinderGeometry(1.8,1.8,2.2,20), mEngine); engineHub.rotation.x = Math.PI/2; engineHub.position.z = c.fuselageLen/2 + 1.1; G.add(engineHub);
+                const cowling = new THREE.Mesh(new THREE.TorusGeometry(c.radialRadius+0.9,0.55,12,40), mEngine); cowling.rotation.x = Math.PI/2; cowling.position.z = engineHub.position.z + 0.2; G.add(cowling);
+                const cylGroup = new THREE.Group();
+                for (let i=0;i<c.radialCylCount;i++){ const a=(i/c.radialCylCount)*Math.PI*2; const cyl=new THREE.Mesh(new THREE.CylinderGeometry(c.radialCylinderR,c.radialCylinderR,c.radialCylinderLen,10,1,true), mCylinder); cyl.rotation.z=Math.PI/2; cyl.rotation.y=a; cyl.rotation.x = THREE.MathUtils.degToRad(c.radialCylinderTiltDeg); const r=c.radialRadius; cyl.position.set(Math.cos(a)*r,Math.sin(a)*r,engineHub.position.z); cyl.position.z += -c.radialCylinderLen*0.15; cyl.castShadow=true; cylGroup.add(cyl); const fin=new THREE.Mesh(new THREE.TorusGeometry(c.radialCylinderR*1.05,0.15,6,18), mCylinder); fin.rotation.y=a; fin.rotation.x=Math.PI/2; fin.position.copy(cyl.position).add(new THREE.Vector3(0,0,0.5)); cylGroup.add(fin);} G.add(cylGroup);
+                for (let i=0;i<c.radialCylCount;i+=2){ const a=(i/c.radialCylCount)*Math.PI*2; const rod=new THREE.Mesh(new THREE.CylinderGeometry(0.15,0.15,c.radialRadius*0.9,6), mStrut); rod.rotation.z=Math.PI/2; rod.rotation.y=a; rod.position.set(Math.cos(a)*c.radialRadius*0.5,Math.sin(a)*c.radialRadius*0.5,engineHub.position.z+0.3); G.add(rod); }
+
+                // Propeller
+                const propGroup = new THREE.Group();
+                const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.9,0.9,2.4,16), mProp); hub.rotation.x = Math.PI/2; propGroup.add(hub);
+                const bladeLen = 6.5;
+                for (let i=0;i<c.propBladeCount;i++){ const blade=new THREE.Mesh(new THREE.BoxGeometry(0.9,0.3, bladeLen), mProp); blade.geometry.translate(0,0, bladeLen/2); blade.rotation.y = (i/c.propBladeCount)*Math.PI*2; const tip=new THREE.Mesh(new THREE.BoxGeometry(0.95,0.34,1), mPropTip); tip.position.z = bladeLen - 0.5; blade.add(tip); propGroup.add(blade);} const blur=new THREE.Mesh(new THREE.CircleGeometry(bladeLen*0.95, 32), new THREE.MeshBasicMaterial({color:0xffffff, transparent:true, opacity:0.18})); blur.rotation.x=-Math.PI/2; blur.visible=false; propGroup.add(blur); propGroup.position.z = engineHub.position.z + 1.6; G.add(propGroup); this.propeller = propGroup; this.propellerBlurDisc = blur;
+
+                // Wings
+                const makeWing=(span,y,z,upper)=>{ const wing=new THREE.Mesh(new THREE.BoxGeometry(span,1.0,c.wingChord), mWing); wing.position.set(0,y,z); wing.rotation.x = THREE.MathUtils.degToRad(upper?-1.2:-1.8); wing.castShadow=true; wing.receiveShadow=true; G.add(wing); return wing; };
+                const lowerZ = -c.fuselageLen*0.05; const upperZ = lowerZ + c.wingStagger; makeWing(c.wingSpanLower,0,lowerZ,false); makeWing(c.wingSpanLower + c.wingSpanUpperExtra,c.wingGap,upperZ,true);
+                const strutPos=[(c.wingSpanLower*0.5 - 4),(c.wingSpanLower*0.25)]; strutPos.forEach(x=>{[-1,1].forEach(sign=>{ const s=new THREE.Mesh(new THREE.CylinderGeometry(0.55,0.55, c.wingGap,8), mStrut); s.position.set(sign*x,c.wingGap/2,lowerZ); s.castShadow=true; G.add(s); });});
+
+                // Cockpit details
+                const coaming = new THREE.Mesh(new THREE.TorusGeometry(3.2,0.35,10,32), mLeather); coaming.rotation.x = Math.PI/2; coaming.position.set(0, c.fuselageH/2 + 0.1, -c.fuselageLen*0.08); G.add(coaming);
+                const windscreenMat = new THREE.MeshStandardMaterial({ color:0x8fc3ff, transparent:true, opacity:0.5, roughness:0.05, metalness:0 });
+                const wsAngles=[0, Math.PI/10, -Math.PI/10]; wsAngles.forEach((ang,i)=>{ const pane=new THREE.Mesh(new THREE.PlaneGeometry(4,2.2), windscreenMat); pane.position.set(0, c.fuselageH/2 + 0.8, -c.fuselageLen*0.02); if(i===1) pane.position.x=2.05; if(i===2) pane.position.x=-2.05; pane.rotation.y=ang; pane.rotation.x=-Math.PI/10; G.add(pane); });
+                const panel = new THREE.Mesh(new THREE.BoxGeometry(6,2.2,0.6), mDark); panel.position.set(0, c.fuselageH/2 -0.2, -c.fuselageLen*0.0 + 1.6); panel.rotation.x = -Math.PI/12; G.add(panel);
+                const gaugePositions=[[-1.8,0.5],[0,0.6],[1.8,0.5],[-1.2,-0.5],[1.2,-0.5]]; gaugePositions.forEach(p=>{ const g=new THREE.Mesh(new THREE.CylinderGeometry(0.55,0.55,0.25,16), mGauge); g.rotation.x=Math.PI/2; g.position.set(p[0], panel.position.y + p[1], panel.position.z + 0.4); const needle=new THREE.Mesh(new THREE.BoxGeometry(0.05,0.05,0.9), mNeedle); needle.position.set(0,0,0.25); needle.rotation.z = Math.random()*Math.PI*1.6 - 0.8; g.add(needle); G.add(g); });
+                const seat = new THREE.Mesh(new THREE.BoxGeometry(4.2,2.2,3.8), mDark); seat.position.set(0, c.fuselageH/2 - 1.8, -c.fuselageLen*0.08); G.add(seat); const beltGeo=new THREE.BoxGeometry(0.4,0.1,3.8); [-1,1].forEach(side=>{ const belt=new THREE.Mesh(beltGeo, mBelt); belt.position.set(side*0.7, seat.position.y+0.9, seat.position.z); belt.rotation.z = THREE.MathUtils.degToRad(side*8); G.add(belt); });
+                const head=new THREE.Mesh(new THREE.SphereGeometry(1.4,12,10), mat(0xc49574,0.9)); head.position.set(0, c.fuselageH/2 -0.1, -c.fuselageLen*0.08); G.add(head); const goggles=new THREE.Mesh(new THREE.TorusGeometry(0.95,0.18,6,16), mDark); goggles.position.copy(head.position).add(new THREE.Vector3(0,0.2,0.95)); goggles.rotation.x=Math.PI/2; G.add(goggles);
+
+                // Guns on upper wing
+                this.gunBarrels = []; const gunMat = mat(0x222222,0.5,0.55); const gunY = c.wingGap + 0.7; [-1,1].forEach(side=>{ const gun=new THREE.Mesh(new THREE.CylinderGeometry(0.35,0.35,5.2,12), gunMat); gun.rotation.x=Math.PI/2; gun.position.set(side*2.3, gunY, upperZ + c.wingChord*0.15); G.add(gun); this.gunBarrels.push(gun); });
+
+                G.traverse(o=>{ if(o.isMesh){ o.castShadow=true; if(o.material===mFuse || o.material===mWing) o.receiveShadow=true; }});
+                G.scale.setScalar(c.scale);
+                this.aircraft = G; this.scene.add(G);
             }
 
             // ================= Nose Cannon System =================
@@ -2219,9 +2302,20 @@
             }
 
             updatePropeller(deltaTime) {
-                // Animate propeller spinning
-                if (this.propeller) {
-                    this.propeller.rotation.z += 30 * deltaTime; // Fast spinning around Z axis (forward motion)
+                if (!this.propeller) return;
+                const speedFactor = this.playerSpeed / 120; // 假定120为最高巡航
+                const rotSpeed = THREE.MathUtils.lerp(18, 70, Math.min(1,speedFactor));
+                this.propeller.rotation.z += rotSpeed * deltaTime;
+                if (this.propellerBlurDisc) {
+                    const blurOn = speedFactor > 0.5;
+                    this.propellerBlurDisc.visible = blurOn;
+                    // 切换真实桨叶隐藏
+                    for (let c of this.propeller.children) {
+                        if (c !== this.propellerBlurDisc) c.visible = !blurOn;
+                    }
+                    if (blurOn) {
+                        this.propellerBlurDisc.material.opacity = 0.12 + 0.25 * Math.min(1,speedFactor);
+                    }
                 }
             }
 
