@@ -783,16 +783,31 @@
                     planeGroup.add(rim);
                 }
                 
-                // Tail wheel
-                const tailWheelGeometry = new THREE.CylinderGeometry(0.3, 0.3, 0.2, 12);
+                // Tail wheel (reworked with strut similar to main gear)
+                const tailGearGroup = new THREE.Group();
+                // Strut (thin black support)
+                const tailStrut = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.12, 2.2, 8), gearMaterial);
+                tailStrut.rotation.z = 0; // vertical
+                tailStrut.position.set(0, -0.4, -8.6);
+                tailStrut.castShadow = true;
+                tailGearGroup.add(tailStrut);
+                // Axle block
+                const tailAxle = new THREE.Mesh(new THREE.BoxGeometry(0.3,0.3,0.6), gearMaterial);
+                tailAxle.position.set(0, -1.4, -9.0);
+                tailAxle.castShadow = true;
+                tailGearGroup.add(tailAxle);
+                // Wheel
+                const tailWheelGeometry = new THREE.CylinderGeometry(0.5, 0.5, 0.38, 14);
                 const tailWheel = new THREE.Mesh(tailWheelGeometry, new THREE.MeshStandardMaterial({ 
-                    color: 0x1a1a1a, 
-                    roughness: 0.9 
+                    color: 0x1a1a1a, roughness: 0.9 
                 }));
-                tailWheel.position.set(0, -1.5, -9);
-                tailWheel.rotation.x = Math.PI / 2;
+                // Match orientation of main gear wheels (rotate around Z)
+                tailWheel.rotation.x = 0;
+                tailWheel.rotation.z = Math.PI / 2;
+                tailWheel.position.set(0, -1.55, -9.0);
                 tailWheel.castShadow = true;
-                planeGroup.add(tailWheel);
+                tailGearGroup.add(tailWheel);
+                planeGroup.add(tailGearGroup);
                 
                 // === COCKPIT CANOPY (半球形座舱盖) with Glass + Frame ===
                 // 半球透明玻璃 + 加强筋框架
@@ -946,7 +961,7 @@
                 
                 // === FINAL ASSEMBLY ===
                 planeGroup.position.copy(this.playerPosition);
-                planeGroup.scale.set(1.44, 1.44, 1.44); // 放大1.2倍（在原1.2基础）
+                planeGroup.scale.set(2.16, 2.16, 2.16); // 等比例再放大1.5倍 (原 1.44)
                 
                 // Store references
                 this.aircraft = planeGroup;
@@ -1497,8 +1512,8 @@
                 const gY = this.getGroundHeight(group.position.x, group.position.z);
                 // 由于 hull.position.y = -50 + 2.5 (在构造中)，group.position.y 初始为 0 时 hull 底部在 -50
                 // 因此当 group.position.y 偏移 d 时，底部 = -50 + d
-                // 我们希望底部 = gY + 1.0 （抬离地面更高）
-                const desiredBottom = gY + 1.0;
+                // 我们希望底部 = gY + 4.0 （抬离地面 4 单位）
+                const desiredBottom = gY + 4.0;
                 const d = desiredBottom - (-50);
                 group.position.y = d;
             }
