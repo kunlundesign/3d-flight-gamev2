@@ -610,44 +610,43 @@
                 tail.castShadow = true;
                 planeGroup.add(tail);
                 
-                // === HORIZONTAL STABILIZER (水平尾翼) REWORK: 分段渐缩与主翼风格一致 ===
-                const tailWingGroup = new THREE.Group();
-                const tailSections = 2;               // 分段数量（每侧）由4改为2，减少割裂感
-                const tailSpanHalf = 4.3;             // 半翼展 ≈ 主翼半翼展(≈10.8) 的40%
-                const baseChord = 2.2;                // 根部弦长
-                const tipChord = 1.2;                 // 翼尖弦长
-                const baseThickness = 0.55;           // 根部厚度
-                const tipThickness = 0.22;            // 尖部厚度
-                const segmentSpan = tailSpanHalf / tailSections; // 每段跨度
-                for (let side = -1; side <= 1; side += 2) {
-                    for (let i = 0; i < tailSections; i++) {
-                        const t = i / (tailSections - 1); // 0 或 1
-                        const chord = THREE.MathUtils.lerp(baseChord, tipChord, t);
-                        const thickness = THREE.MathUtils.lerp(baseThickness, tipThickness, t);
-                        // 让根段更宽，尖段收敛
-                        const spanWidth = (i === 0 ? segmentSpan * 1.1 : segmentSpan * 0.85);
-                        const geo = new THREE.BoxGeometry(spanWidth, thickness, chord);
-                        const seg = new THREE.Mesh(geo, wingMaterial);
-                        // 均匀放置但稍微内收第二段以消除明显断点
-                        const spanOffset = (i === 0)
-                            ? (segmentSpan * 0.55)
-                            : (segmentSpan * 0.55 + segmentSpan * 0.9);
-                        seg.position.set(side * spanOffset, 0, -10);
-                        seg.rotation.z = side * THREE.MathUtils.degToRad(3.5 + t * 1.2);
-                        seg.rotation.y = side * THREE.MathUtils.degToRad(1.2 + t * 1.0);
-                        seg.castShadow = true;
-                        tailWingGroup.add(seg);
-                    }
-                    // 翼尖（圆润收束）
-                    const tipGeo = new THREE.CapsuleGeometry(0.30, 0.55, 4, 8);
-                    const tip = new THREE.Mesh(tipGeo, wingMaterial);
-                    tip.rotation.z = Math.PI / 2;
-                    tip.scale.set(1, 0.5, 0.75);
-                    tip.position.set(side * (tailSpanHalf * 0.96 + 0.25), 0, -10);
-                    tip.castShadow = true;
-                    tailWingGroup.add(tip);
-                }
-                planeGroup.add(tailWingGroup);
+                // === HORIZONTAL STABILIZER (水平尾翼) 单一整体几何 ===
+                // 采用单个二维形状挤出，避免分段接缝，左右对称、根部宽 尖部收敛。
+                (function(){
+                    const spanHalf = 4.3;        // 半翼展（与之前逻辑一致）
+                    const rootChord = 2.2;       // 根部弦长
+                    const tipChord = 1.2;        // 翼尖弦长
+                    const thickness = 0.38;      // 统一厚度（介于原根与尖之间）
+                    const dihedralDeg = 4;       // 上反角
+                    const twistDeg = 3;          // 轻微扭转
+                    // 在 XY 平面绘制俯视外形：X 为翼展，Y 为弦向
+                    const shape = new THREE.Shape();
+                    // 从左根前缘开始逆时针：
+                    shape.moveTo(-spanHalf, 0);
+                    shape.lineTo(-spanHalf * 0.92, -tipChord); // 左前尖端
+                    shape.quadraticCurveTo(0, -tipChord * 1.05, spanHalf * 0.92, -tipChord); // 前缘微弧
+                    shape.lineTo(spanHalf, 0);   // 右根前缘
+                    shape.lineTo(spanHalf, -rootChord * 0.15); // 右内角（稍后缘内缩）
+                    shape.lineTo(spanHalf * 0.55, -rootChord); // 右后根
+                    shape.lineTo(-spanHalf * 0.55, -rootChord); // 左后根
+                    shape.lineTo(-spanHalf, -rootChord * 0.15); // 左内角
+                    shape.closePath();
+                    const extrudeGeo = new THREE.ExtrudeGeometry(shape, { depth: thickness, bevelEnabled:false });
+                    // 旋转：当前形状在 XY，Y 为弦向；需要 Z 为机身方向，故将形状绕 X 轴旋转使 Y->Z
+                    extrudeGeo.rotateX(Math.PI / 2); // 现在 depth 方向为 +Y（厚度）
+                    // 居中厚度：移动 Y 使厚度中心位于 0
+                    extrudeGeo.translate(0, -thickness/2, 0);
+                    // 平移到机身尾部 Z = -10
+                    const stab = new THREE.Mesh(extrudeGeo, wingMaterial);
+                    stab.position.z = -10;
+                    // 上反角：绕前后轴(局部 Z?) 当前翼展沿 X，上反角绕 Z 无效，应绕局部 Z? 实际应绕机身前向(Z)提升外端 => 这里用 rotateZ
+                    stab.rotation.z = THREE.MathUtils.degToRad(0); // 不绕Z（保持水平）
+                    // 使用几何本身顶点实现扭转：直接整体轻微绕 X 轴增加气动感
+                    stab.rotation.x = THREE.MathUtils.degToRad(twistDeg * 0.2);
+                    stab.castShadow = true;
+                    stab.receiveShadow = true;
+                    planeGroup.add(stab);
+                })();
                 
                 // === VERTICAL STABILIZER (垂直尾翼) REWORK: 正确右角三角形，短边贴机身，斜边朝前 ===
                 (function(){
