@@ -296,6 +296,12 @@
                 this.gunBarrels = [];           // 炮口引用
                 this.tempVec = new THREE.Vector3();
                 this.forwardVec = new THREE.Vector3(0,0,1);
+                
+                // === Optimized smoke particle system ===
+                // Removed complex continuous smoke system for performance
+                // Using simple one-time explosion smoke instead
+                
+                
                 // === Scoreboard & player identity ===
                 this.playerName = null;
                 this.scoreData = { players: {} }; // { name: { tank:0, ship:0, total:0, last:timestamp } }
@@ -740,9 +746,7 @@
                     transparent: true,
                     opacity: 0.25,
                     metalness: 0.0,
-                    roughness: 0.0,
-                    transmission: 0.9,
-                    ior: 1.5
+                    roughness: 0.0
                 });
                 
                 const darkMetalMaterial = new THREE.MeshStandardMaterial({
@@ -954,64 +958,64 @@
                 planeGroup.add(propGroup);
                 this.propeller = propGroup;
                 
-                // === DETAILED LANDING GEAR (起落架) ===
+                // === DETAILED LANDING GEAR (起落架) - Shorter & Smaller ===
                 const gearMaterial = new THREE.MeshStandardMaterial({ 
                     color: 0x404040,
                     metalness: 0.8,
                     roughness: 0.3
                 });
                 
-                // Main gear struts with hydraulics
+                // Main gear struts with hydraulics (shorter and thinner)
                 for (let side = -1; side <= 1; side += 2) {
-                    const strutGeometry = new THREE.CylinderGeometry(0.08, 0.12, 3.5, 8);
+                    const strutGeometry = new THREE.CylinderGeometry(0.06, 0.09, 2.2, 8); // Reduced from 3.5 to 2.2, thinner
                     const strut = new THREE.Mesh(strutGeometry, gearMaterial);
-                    strut.position.set(side * 2, -2.2, 0);
+                    strut.position.set(side * 1.8, -1.8, 0); // Moved up and closer
                     strut.castShadow = true;
                     planeGroup.add(strut);
                     
-                    // Wheels with detailed rims
-                    const wheelGeometry = new THREE.CylinderGeometry(0.9, 0.9, 0.4, 16);
+                    // Wheels with detailed rims (smaller)
+                    const wheelGeometry = new THREE.CylinderGeometry(0.65, 0.65, 0.3, 16); // Reduced from 0.9 to 0.65
                     const wheelMaterial = new THREE.MeshStandardMaterial({ 
                         color: 0x1a1a1a,
                         roughness: 0.9
                     });
                     const wheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
-                    wheel.position.set(side * 2, -3.8, 0);
+                    wheel.position.set(side * 1.8, -2.9, 0); // Adjusted position
                     wheel.rotation.z = Math.PI / 2;
                     wheel.castShadow = true;
                     planeGroup.add(wheel);
                     
-                    // Wheel rims
-                    const rimGeometry = new THREE.CylinderGeometry(0.7, 0.7, 0.45, 16);
+                    // Wheel rims (smaller)
+                    const rimGeometry = new THREE.CylinderGeometry(0.5, 0.5, 0.32, 16); // Reduced from 0.7 to 0.5
                     const rim = new THREE.Mesh(rimGeometry, gearMaterial);
-                    rim.position.set(side * 2, -3.8, 0);
+                    rim.position.set(side * 1.8, -2.9, 0);
                     rim.rotation.z = Math.PI / 2;
                     rim.castShadow = true;
                     planeGroup.add(rim);
                 }
                 
-                // Tail wheel (reworked with strut similar to main gear)
+                // Tail wheel (shorter and smaller)
                 const tailGearGroup = new THREE.Group();
-                // Strut (thin black support)
-                const tailStrut = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.12, 2.2, 8), gearMaterial);
+                // Strut (thinner and shorter)
+                const tailStrut = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.08, 1.5, 8), gearMaterial); // Reduced from 2.2 to 1.5
                 tailStrut.rotation.z = 0; // vertical
-                tailStrut.position.set(0, -0.4, -8.6);
+                tailStrut.position.set(0, -0.2, -8.6); // Moved up
                 tailStrut.castShadow = true;
                 tailGearGroup.add(tailStrut);
-                // Axle block
-                const tailAxle = new THREE.Mesh(new THREE.BoxGeometry(0.3,0.3,0.6), gearMaterial);
-                tailAxle.position.set(0, -1.4, -9.0);
+                // Axle block (smaller)
+                const tailAxle = new THREE.Mesh(new THREE.BoxGeometry(0.2,0.2,0.4), gearMaterial); // Reduced size
+                tailAxle.position.set(0, -1.0, -9.0); // Adjusted position
                 tailAxle.castShadow = true;
                 tailGearGroup.add(tailAxle);
-                // Wheel
-                const tailWheelGeometry = new THREE.CylinderGeometry(0.5, 0.5, 0.38, 14);
+                // Wheel (smaller)
+                const tailWheelGeometry = new THREE.CylinderGeometry(0.35, 0.35, 0.25, 14); // Reduced from 0.5 to 0.35
                 const tailWheel = new THREE.Mesh(tailWheelGeometry, new THREE.MeshStandardMaterial({ 
                     color: 0x1a1a1a, roughness: 0.9 
                 }));
                 // Match orientation of main gear wheels (rotate around Z)
                 tailWheel.rotation.x = 0;
                 tailWheel.rotation.z = Math.PI / 2;
-                tailWheel.position.set(0, -1.55, -9.0);
+                tailWheel.position.set(0, -1.1, -9.0); // Adjusted position
                 tailWheel.castShadow = true;
                 tailGearGroup.add(tailWheel);
                 planeGroup.add(tailGearGroup);
@@ -1171,10 +1175,17 @@
                 planeGroup.scale.set(2.16, 2.16, 2.16); // 等比例再放大1.5倍 (原 1.44)
                 
                 // Store references
+                this.loadedModel = null; // Clear custom model reference for visible cannons
                 this.aircraft = planeGroup;
                 this.scene.add(this.aircraft);
-                // 如果默认飞机创建成功后添加机炮（若未在init里）
-                if (this.gunBarrels.length === 0) this.createNoseCannons();
+                
+                // Remove existing cannons and recreate with proper visibility
+                const existingCannons = this.aircraft.getObjectByName('NoseCannons');
+                if (existingCannons) {
+                    this.aircraft.remove(existingCannons);
+                }
+                this.gunBarrels = []; // Clear barrel references
+                this.createNoseCannons(); // Recreate with full visibility
             }
 
             // ================= Nose Cannon System =================
@@ -1184,18 +1195,24 @@
                 if (this.aircraft.getObjectByName('NoseCannons')) return;
                 const barrelsGroup = new THREE.Group();
                 barrelsGroup.name = 'NoseCannons';
+                
+                // Check if using custom GLB model - make guns transparent if so
+                const isCustomModel = !!this.loadedModel;
                 const barrelMat = new THREE.MeshStandardMaterial({
                     color: 0x2c2c2c,
                     metalness: 0.85,
-                    roughness: 0.25
+                    roughness: 0.25,
+                    transparent: isCustomModel,
+                    opacity: isCustomModel ? 0.0 : 1.0  // Fully transparent for custom models
                 });
+                
                 const barrelGeo = new THREE.CylinderGeometry(0.12, 0.12, 1.6, 12);
                 this.gunBarrels = [];
                 for (let s of [-1,1]) {
                     const barrel = new THREE.Mesh(barrelGeo, barrelMat);
                     barrel.rotation.x = Math.PI/2;
                     barrel.position.set(s*0.6, -0.15, 7.2);
-                    barrel.castShadow = true;
+                    barrel.castShadow = !isCustomModel; // No shadows for transparent guns
                     barrelsGroup.add(barrel);
                     this.gunBarrels.push(barrel);
                 }
@@ -1205,10 +1222,13 @@
                     const ring = new THREE.Mesh(ringGeo, new THREE.MeshStandardMaterial({
                         color: 0x555555,
                         metalness: 0.6,
-                        roughness: 0.4
+                        roughness: 0.4,
+                        transparent: isCustomModel,
+                        opacity: isCustomModel ? 0.0 : 1.0  // Fully transparent for custom models
                     }));
                     ring.rotation.x = Math.PI/2;
                     ring.position.set(s*0.6, -0.15, 6.45);
+                    ring.castShadow = !isCustomModel; // No shadows for transparent rings
                     barrelsGroup.add(ring);
                 }
                 this.aircraft.add(barrelsGroup);
@@ -1363,8 +1383,11 @@
                                 // 命中
                                 tank.alive = false;
                                 this.createExplosion(tank.mesh.position.clone());
-                                this.scene.remove(tank.mesh);
-                                // 生成残骸/焦黑贴花
+                                
+                                // Create smoking tank wreck instead of removing
+                                this.createTankDestroyed(tank.mesh.position.clone(), tank.mesh);
+                                
+                                // Keep the scorch mark on ground
                                 this.createScorchMark(tank.mesh.position.x, tank.mesh.position.z);
                                 // 移除子弹
                                 this.scene.remove(b.mesh);
@@ -2011,6 +2034,7 @@
                 if (!aaVariant) {
                     // 常规炮管（从炮塔中心 35° 抬起）
                     const gunPivot = new THREE.Group();
+                    gunPivot.name = 'gunPivot'; // Set name for wreck conversion
                     gunPivot.position.set(0, turretY, 0);
                     group.add(gunPivot);
                     const barrelMat = new THREE.MeshStandardMaterial({ color:0x2d2d2d, metalness:0.6, roughness:0.45 });
@@ -2068,7 +2092,85 @@
                 // 贴合地面高度
                 this.alignTankToGround(group);
                 this.scene.add(group);
-                return { mesh: group, alive: true, radius: 16, indicator: arrowGroup };
+                
+                // Add movement properties for dynamic animation
+                const moveSpeed = 15 + Math.random() * 10; // 15-25 units per second
+                const direction = Math.random() * Math.PI * 2; // Random initial direction
+                const turretSpeed = (Math.random() - 0.5) * 0.3; // -0.15 to +0.15 rad/s
+                
+                return { 
+                    mesh: group, 
+                    alive: true, 
+                    radius: 16, 
+                    indicator: arrowGroup,
+                    // Movement properties
+                    velocity: new THREE.Vector3(),
+                    moveDirection: direction,
+                    moveSpeed: moveSpeed,
+                    turretRotation: Math.random() * Math.PI * 2,
+                    turretSpeed: turretSpeed,
+                    changeDirectionTimer: Math.random() * 8, // Random 0-8 seconds
+                    turretReference: turret // Store reference to turret for rotation
+                };
+            }
+
+            // === Tank Movement System (Performance Optimized) ===
+            updateTanks(deltaTime) {
+                if (!this.tanks) return;
+                
+                // Throttle updates - only update tanks every 3rd frame for smoother performance
+                this.tankUpdateCounter = (this.tankUpdateCounter || 0) + 1;
+                const shouldUpdateMovement = this.tankUpdateCounter % 3 === 0;
+                
+                this.tanks.forEach((tank, index) => {
+                    if (!tank.alive) return;
+                    
+                    // Always update turret rotation (lightweight)
+                    if (tank.turretReference) {
+                        tank.turretRotation += tank.turretSpeed * deltaTime;
+                        tank.turretReference.rotation.y = tank.turretRotation;
+                    }
+                    
+                    // Throttle movement updates for performance
+                    if (!shouldUpdateMovement) return;
+                    
+                    // Update direction change timer
+                    tank.changeDirectionTimer -= deltaTime * 3; // Compensate for throttling
+                    if (tank.changeDirectionTimer <= 0) {
+                        const turnAngle = (Math.PI / 2) + (Math.random() * Math.PI / 2);
+                        tank.moveDirection += (Math.random() > 0.5) ? turnAngle : -turnAngle;
+                        tank.changeDirectionTimer = 4 + Math.random() * 6;
+                    }
+                    
+                    // Calculate movement velocity (reuse existing Vector3)
+                    tank.velocity.set(
+                        Math.cos(tank.moveDirection) * tank.moveSpeed,
+                        0,
+                        Math.sin(tank.moveDirection) * tank.moveSpeed
+                    );
+                    
+                    // Apply movement with throttling compensation
+                    const moveMultiplier = deltaTime * 3; // Compensate for 1/3 update frequency
+                    tank.mesh.position.x += tank.velocity.x * moveMultiplier;
+                    tank.mesh.position.z += tank.velocity.z * moveMultiplier;
+                    
+                    // Boundary checking
+                    const worldBoundary = 3500;
+                    const pos = tank.mesh.position;
+                    if (Math.abs(pos.x) > worldBoundary || Math.abs(pos.z) > worldBoundary) {
+                        tank.moveDirection += Math.PI;
+                        tank.changeDirectionTimer = 1 + Math.random() * 2;
+                    }
+                    
+                    // Ground alignment - only every 5th tank per frame to spread load
+                    const frameOffset = this.tankUpdateCounter + index;
+                    if (frameOffset % 15 === 0) { // Every 5 frames for each tank
+                        this.alignTankToGround(tank.mesh);
+                    }
+                    
+                    // Tank body rotation (lightweight)
+                    tank.mesh.rotation.y = tank.moveDirection;
+                });
             }
 
             updateTankIndicators(delta){
@@ -2180,6 +2282,101 @@
                     }
                 };
                 requestAnimationFrame(fade);
+            }
+
+            // ================= Simple One-time Tank Destruction System =================
+            createTankDestroyed(position, tankMesh) {
+                try {
+                    // 安全检查
+                    if (!position || !tankMesh) {
+                        console.warn('Invalid tank destruction parameters');
+                        return;
+                    }
+                    
+                    // 立即停止坦克移动 - 无需复杂检查
+                    // updateTanks中的alive检查会自动处理
+                    
+                    // 转换外观
+                    this.convertTankToWreck(tankMesh);
+                    
+                    // 创建简单烟雾
+                    this.createExplosionSmoke(position);
+                    
+                } catch (e) {
+                    console.error('Tank destruction error:', e);
+                }
+            }
+
+            convertTankToWreck(tankMesh) {
+                try {
+                    // 安全的材质转换
+                    tankMesh.traverse((child) => {
+                        if (child.isMesh && child.material) {
+                            // 简单的材质替换，避免复杂操作
+                            const newMat = new THREE.MeshStandardMaterial({
+                                color: 0x2a2422, // 深色烧毁外观
+                                metalness: 0.1,
+                                roughness: 0.9
+                            });
+                            
+                            child.material = newMat;
+                        }
+                        
+                        // 安全的炮管下垂检查
+                        if (child.name === 'gunPivot') {
+                            child.rotation.x = -Math.PI / 6; // 下垂30度
+                        }
+                    });
+                    
+                    // 轻微倾斜效果
+                    tankMesh.rotation.z += (Math.random() - 0.5) * 0.1;
+                    tankMesh.rotation.x += (Math.random() - 0.5) * 0.08;
+                    
+                } catch (e) {
+                    console.warn('Tank wreck conversion error:', e);
+                }
+            }
+
+            createExplosionSmoke(position) {
+                // 极简版一次性烟雾效果，绝不卡死
+                const smokeGroup = new THREE.Group();
+                
+                // 只创建2个简单的烟雾球体，降低复杂度
+                for (let i = 0; i < 2; i++) {
+                    const smokeGeo = new THREE.SphereGeometry(1.2, 4, 3); // 极低面数
+                    const smokeMat = new THREE.MeshBasicMaterial({
+                        color: 0x333333,
+                        transparent: true,
+                        opacity: 0.6
+                    });
+                    
+                    const smoke = new THREE.Mesh(smokeGeo, smokeMat);
+                    smoke.position.set(
+                        position.x + (Math.random() - 0.5) * 3,
+                        position.y + 1 + i,
+                        position.z + (Math.random() - 0.5) * 3
+                    );
+                    smoke.scale.setScalar(0.4);
+                    
+                    smokeGroup.add(smoke);
+                }
+                
+                this.scene.add(smokeGroup);
+                
+                // 最简单的消失逻辑 - 2秒后直接删除，没有动画循环
+                setTimeout(() => {
+                    try {
+                        this.scene.remove(smokeGroup);
+                        // 安全清理
+                        smokeGroup.children.forEach(child => {
+                            if (child.geometry) child.geometry.dispose();
+                            if (child.material) child.material.dispose();
+                        });
+                        smokeGroup.clear();
+                    } catch (e) {
+                        console.warn('Smoke cleanup error:', e);
+                    }
+                }, 2000);
             }
 
             // （公路系统已移除）
@@ -2500,6 +2697,9 @@
                     this.loadedModel = model;
                     this.aircraft = model;
                     this.scene.add(model);
+                    
+                    // Recreate nose cannons with transparency for custom model
+                    this.createNoseCannons();
                     
                     // 显示动画控制面板（如果有动画）
                     if (gltf.animations && gltf.animations.length > 0) {
@@ -2899,6 +3099,8 @@
                 this.updateCamera();
                 this.updateClouds(deltaTime);
                 this.updatePropeller(deltaTime);
+                // Tank movement and turret rotation
+                this.updateTanks(deltaTime);
                 // Weapon updates
                 this.tryFireGuns(deltaTime);
                 this.updateBullets(deltaTime);
