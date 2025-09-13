@@ -124,7 +124,7 @@
             border-left: 4px solid #f44336;
         }
 
-        /* 场景切换面板 */
+        /* Scene Switcher Panel */
         #sceneSwitcher {
             position: absolute;
             top: 20px;
@@ -273,11 +273,14 @@
                 this.clouds = [];
                 // === Environment configuration ===
                 // === Scene variant system ===
-                // Supported: 'default' | 'snow' | 'desert' | 'ocean'
-                this.sceneType = 'default';
-                // Try read hash (#snow / #desert / #ocean) for quick switching
+                // Supported: 'grassland' | 'snow' | 'desert' | 'ocean'
+                this.sceneType = 'grassland';
+                // Try read hash (#snow / #desert / #ocean / #grassland) for quick switching
                 const hash = window.location.hash.replace('#','').toLowerCase();
-                if(['snow','desert','ocean','default'].includes(hash)) this.sceneType = hash || 'default';
+                if(['snow','desert','ocean','grassland','default'].includes(hash)) {
+                    // Backward compatibility: legacy 'default' maps to 'grassland'
+                    this.sceneType = (hash === 'default') ? 'grassland' : (hash || 'grassland');
+                }
                 this.environmentConfig = this.getEnvironmentConfig(this.sceneType);
                 // === Combat targets ===
                 this.tanks = []; // 静态坦克目标 { mesh, alive, radius }
@@ -317,7 +320,7 @@
                 this.setupFileUpload();
                 this.setupKeyboardControls();
                 this.setupMouseControls(); // 鼠标射击
-                this.setupSceneSwitcher(); // 场景切换UI
+                this.setupSceneSwitcher(); // Scene switching UI
                 this.hideLoadingScreen();
                 this.gameLoop();
             }
@@ -450,8 +453,7 @@
                     this.createOceanSurface();
                     this.createSmallIslands();
                     this.createWarships(6);
-                } else {
-                    // default
+                } else { // grassland (formerly 'default')
                     this.createMountainRanges();
                     this.createTrees();
                     this.createLakes();
@@ -470,6 +472,8 @@
             }
 
             getEnvironmentConfig(type){
+                // Map legacy 'default' to new canonical 'grassland'
+                if (type === 'default') type = 'grassland';
                 switch(type){
                     case 'snow':
                         return { treeDensityMultiplier: 1.8, rockCount: 10, grassPatchCount: 40, bushClusterCount: 20, birdFlocks:0, soilPatchCount:20 };
@@ -477,6 +481,7 @@
                         return { treeDensityMultiplier: 0.4, rockCount: 5, grassPatchCount: 0, bushClusterCount: 5, birdFlocks:0, soilPatchCount:10 };
                     case 'ocean':
                         return { treeDensityMultiplier: 0, rockCount: 0, grassPatchCount: 0, bushClusterCount: 0, birdFlocks:0, soilPatchCount:0 };
+                    case 'grassland':
                     default:
                         return { treeDensityMultiplier: 2.8, rockCount: 0, grassPatchCount: 180, bushClusterCount: 70, birdFlocks:0, soilPatchCount:120 };
                 }
@@ -1568,7 +1573,6 @@
 
             // === 湖泊系统（替换原先的河流系统） ===
             createLakes() {
-                if (this.sceneType === 'desert') return; // 沙漠禁用湖泊
                 // 创建多个不同大小与形状的湖泊
                 const lakeConfigs = [
                     { x: -1500, z: -1200, radius: 350, color: 0x3A87BD }, // 大湖
@@ -1590,7 +1594,6 @@
             }
 
             createLake(centerX, centerZ, radius, color) {
-                if (this.sceneType === 'desert') return; // 再次防御性检查
                 // 使用细分圆形并随机扰动顶点制造自然外形
                 const segments = 48;
                 const geometry = new THREE.CircleGeometry(radius, segments);
@@ -1637,7 +1640,7 @@
             createTree(x, z, treeType = 'oak') {
                 const treeGroup = new THREE.Group();
                 
-                // 海洋场景：在树下生成更高、明显的黄色沙滩小岛（圆台状）
+                // Ocean scene: Generate raised sandy islands (cone-like) under trees
                 if (this.sceneType === 'ocean') {
                     const baseRadius = treeType === 'palm' ? 30 : 22;
                     const islandRadiusTop = baseRadius * 0.7;
@@ -2796,84 +2799,85 @@
                 }, 3000);
             }
 
-            // === 场景切换 UI ===
+            // === Scene Switcher UI (dynamic English) ===
             setupSceneSwitcher(){
-                const id = 'sceneSwitcher';
-                if (document.getElementById(id)) return; // 已存在
+                // Remove any legacy static panel (Chinese) if still present
+                const existing = document.getElementById('sceneSwitcher');
+                if (existing && !existing.__dynamic) existing.remove();
+                if (document.getElementById('sceneSwitcher')) return; // already created
                 const panel = document.createElement('div');
-                panel.id = id;
+                panel.id = 'sceneSwitcher';
+                panel.__dynamic = true;
                 const scenes = [
-                    { key:'default', label:'默认' },
-                    { key:'snow', label:'雪地' },
-                    { key:'desert', label:'沙漠' },
-                    { key:'ocean', label:'海洋' }
+                    { key:'grassland', label:'Grassland' },
+                    { key:'snow', label:'Snow' },
+                    { key:'desert', label:'Desert' },
+                    { key:'ocean', label:'Ocean' }
                 ];
                 scenes.forEach(s => {
                     const btn = document.createElement('button');
                     btn.textContent = s.label;
-                    if (this.sceneType === s.key) btn.classList.add('active');
+                    btn.dataset.scene = s.key;
+                    if (this.sceneType === s.key || (this.sceneType === 'default' && s.key==='grassland')) btn.classList.add('active');
                     btn.addEventListener('click', ()=>{
                         if (this.sceneType === s.key) return;
-                        // 更新 URL hash 但不强制刷新
-                        if (s.key==='default') {
-                            history.replaceState(null,'', window.location.pathname + window.location.search);
-                        } else {
-                            history.replaceState(null,'', '#'+s.key);
-                        }
                         this.switchSceneType(s.key);
-                        // 更新按钮状态
-                        panel.querySelectorAll('button').forEach(b=>b.classList.remove('active'));
-                        btn.classList.add('active');
-                        this.showNotification('切换到场景: '+s.label, 'success');
                     });
                     panel.appendChild(btn);
                 });
                 document.body.appendChild(panel);
+                if (!window.__SCENE_SWITCHER_VERSION_LOGGED) {
+                    window.__SCENE_SWITCHER_VERSION_LOGGED = true;
+                    console.log('[SceneSwitcher] v1 loaded', new Date().toISOString());
+                }
             }
 
-            // 动态切换场景（不刷新页面 / 不显示蓝色加载）
+            updateSceneSwitcherActive(){
+                const panel = document.getElementById('sceneSwitcher');
+                if (!panel) return;
+                panel.querySelectorAll('button').forEach(btn => {
+                    if (btn.dataset.scene === this.sceneType) btn.classList.add('active');
+                    else btn.classList.remove('active');
+                });
+            }
+
+            // Dynamic scene switching (no full page reload)
             switchSceneType(newType){
-                if (!['default','snow','desert','ocean'].includes(newType)) return;
+                if (newType === 'default') newType = 'grassland'; // normalize
+                const valid = ['grassland','snow','desert','ocean'];
+                if (!valid.includes(newType)) return;
                 if (this.sceneType === newType) return;
                 const prevScene = this.scene;
-                this.sceneType = newType;
-                // 保存飞机与相机状态
                 const aircraft = this.aircraft;
                 const playerPos = this.playerPosition.clone();
                 const playerVel = this.playerVelocity.clone();
-                // === 清理旧子节点（保留 renderer/camera/aircraft 引用即可） ===
+                this.sceneType = newType;
+                // Update URL hash (omit hash for grassland for cleanliness)
+                if (newType === 'grassland') history.replaceState(null,'', window.location.pathname + window.location.search);
+                else history.replaceState(null,'', '#'+newType);
                 this.disposeOldScene(prevScene, aircraft);
-                // 创建新场景
-                const fogColors = { default:0x87CEEB, snow:0xdbe9f5, desert:0xe2c27b, ocean:0x6fb2ff };
+                const fogColors = { grassland:0x87CEEB, snow:0xdbe9f5, desert:0xe2c27b, ocean:0x6fb2ff };
                 this.scene = new THREE.Scene();
-                const fogColor = fogColors[this.sceneType] || 0x87CEEB;
+                const fogColor = fogColors[this.sceneType] || fogColors.grassland;
                 this.scene.fog = new THREE.Fog(fogColor, 100, 2000);
                 this.renderer.setClearColor(fogColor,1);
-                // 重新添加飞机
                 if (aircraft) {
                     this.aircraft = aircraft;
                     this.aircraft.position.copy(playerPos);
                     this.scene.add(this.aircraft);
                 }
-                // 重置容器引用
-                this.tanks = []; this.bullets = []; this.muzzleFlashes = [];
-                // 保留触发结构，清空后会通过 createNoseCannons 重建
+                this.tanks = []; this.bullets = []; this.muzzleFlashes = []; this.warships = [];
                 this.gunBarrels = [];
-                // 重建光照与地形
                 this.setupLighting();
                 this.environmentConfig = this.getEnvironmentConfig(this.sceneType);
                 this.createTerrain();
                 if (this.sceneType !== 'ocean') this.createClouds();
-                // 重新添加机炮（若丢失）
                 this.createNoseCannons();
-                // 如果切换过程中按住鼠标仍保持射击状态
-                if (this.isFiring) {
-                    // 立即尝试一次发射以验证恢复
-                    this.lastShotTime = 0; // 重置计时器允许马上开火
-                }
-                // 恢复玩家运动状态
+                if (this.isFiring) this.lastShotTime = 0;
                 this.playerPosition.copy(playerPos);
                 this.playerVelocity.copy(playerVel);
+                this.updateSceneSwitcherActive();
+                this.showNotification('Switched to scene: '+ this.sceneType.charAt(0).toUpperCase()+this.sceneType.slice(1), 'success');
             }
 
             disposeOldScene(oldScene, aircraftKeep){
@@ -2926,10 +2930,10 @@
                 
                 // 创建提示消息
                 const messages = [
-                    "🌍 穿越至新的区域...",
-                    "✈️ 飞向了星球的另一边",
-                    "🗺️ 世界边缘传送中...",
-                    "🌌 循环世界让你能无限探索"
+                    "🌍 Entering a new sector...",
+                    "✈️ Flying to the far side of the world",
+                    "🗺️ Warping at world boundary...",
+                    "🌌 Looping world enables endless exploration"
                 ];
                 
                 const randomMessage = messages[Math.floor(Math.random() * messages.length)];
