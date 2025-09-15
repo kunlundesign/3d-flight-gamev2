@@ -344,6 +344,8 @@
                 this.playerPosition = new THREE.Vector3(0, 50, 0);
                 this.playerVelocity = new THREE.Vector3(0, 0, 0);
                 this.playerSpeed = 60; // Current speed in units/sec
+                this.playerHealth = 100; // Player health
+                this.playerMaxHealth = 100; // Maximum player health
                 
                 // Flight control state
                 this.inputState = {
@@ -1498,7 +1500,7 @@
                                     // 坦克受伤但存活，如果是普通坦克，玩家回血
                                     if (!tank.isAA) {
                                         this.playerHealth = Math.min(this.playerMaxHealth, this.playerHealth + 10);
-                                        this.showHealthGain(10);
+                                        // TODO: Add visual health gain indicator
                                     }
                                 }
                                 
