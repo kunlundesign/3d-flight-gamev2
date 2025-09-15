@@ -276,6 +276,26 @@
         #hudStats span.label { opacity:0.7; margin-right:4px; font-size:11px; text-transform:uppercase; }
         #hudStats .value { font-weight:600; color:#ffd560; }
         #hudStats .total { color:#7dff91; }
+        
+        /* Player Health Display */
+        #playerHealthDisplay {
+            position: fixed; top: 20px; left: 20px; z-index: 1200;
+            background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(8px);
+            padding: 12px 20px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.2);
+            color: white; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-size: 16px; font-weight: 600; text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+        }
+        
+        #playerHealthDisplay.low-health {
+            background: rgba(255, 50, 50, 0.8);
+            border-color: rgba(255, 100, 100, 0.5);
+            animation: healthWarning 1s ease-in-out infinite alternate;
+        }
+        
+        @keyframes healthWarning {
+            from { opacity: 0.8; }
+            to { opacity: 1.0; }
+        }
     </style>
 </head>
 <body>
@@ -284,6 +304,9 @@
             <div><span class="label">Tanks</span><span id="hudTankKills" class="value">0</span></div>
             <div><span class="label">Ships</span><span id="hudShipKills" class="value">0</span></div>
             <div><span class="label">Total</span><span id="hudTotalKills" class="value total">0</span></div>
+        </div>
+        <div id="playerHealthDisplay" style="display:none;">
+            Health: <span id="playerHealthValue">30</span>/30
         </div>
         <div id="loadingScreen">
             <video id="backgroundVideo" autoplay muted loop>
@@ -344,8 +367,8 @@
                 this.playerPosition = new THREE.Vector3(0, 50, 0);
                 this.playerVelocity = new THREE.Vector3(0, 0, 0);
                 this.playerSpeed = 60; // Current speed in units/sec
-                this.playerHealth = 100; // Player health
-                this.playerMaxHealth = 100; // Maximum player health
+                this.playerHealth = 30; // Player health (simple difficulty)
+                this.playerMaxHealth = 30; // Maximum player health
                 
                 // Flight control state
                 this.inputState = {
@@ -389,6 +412,7 @@
                 this.lastShotTime = 0;          // 上次发射时间 (s)
                 this.fireInterval = 0.08;       // 射速间隔 ~12.5发/秒
                 this.bullets = [];              // 活跃子弹
+                this.enemyBullets = [];         // 敌方子弹 (AA tanks & warships)
                 this.muzzleFlashes = [];        // 枪口火光
                 this.gunBarrels = [];           // 炮口引用
                 this.tempVec = new THREE.Vector3();
@@ -411,6 +435,23 @@
                 this.updateScoreboardUI();
                 
                 this.init();
+            }
+            
+            updatePlayerHealthDisplay() {
+                const healthDisplay = document.getElementById('playerHealthDisplay');
+                const healthValue = document.getElementById('playerHealthValue');
+                
+                if (healthDisplay && healthValue) {
+                    healthDisplay.style.display = 'block';
+                    healthValue.textContent = Math.max(0, Math.round(this.playerHealth));
+                    
+                    // Change color and add warning animation when health is low
+                    if (this.playerHealth <= 10) {
+                        healthDisplay.classList.add('low-health');
+                    } else {
+                        healthDisplay.classList.remove('low-health');
+                    }
+                }
             }
 
             init() {
@@ -1573,6 +1614,152 @@
                 }
             }
 
+            // ==== 敌方射击系统 ====
+            createEnemyBullet(position, targetPosition, speed = 400) {
+                // Create bullet geometry and material
+                const geometry = new THREE.CylinderGeometry(0.3, 0.3, 6, 6);
+                const material = new THREE.MeshBasicMaterial({ 
+                    color: 0xff4444,
+                    transparent: true,
+                    opacity: 0.9
+                });
+                const mesh = new THREE.Mesh(geometry, material);
+                
+                // Position bullet at origin
+                mesh.position.copy(position);
+                
+                // Calculate direction to target with some inaccuracy
+                const direction = new THREE.Vector3()
+                    .subVectors(targetPosition, position)
+                    .normalize();
+                
+                // Point bullet in direction of travel
+                mesh.lookAt(position.clone().add(direction));
+                
+                // Add to scene
+                this.scene.add(mesh);
+                
+                // Create bullet object
+                const bullet = {
+                    mesh: mesh,
+                    velocity: direction.multiplyScalar(speed),
+                    age: 0,
+                    life: 3.0 // 3 seconds life
+                };
+                
+                this.enemyBullets.push(bullet);
+                
+                return bullet;
+            }
+
+            updateEnemyBullets(deltaTime) {
+                for (let i = this.enemyBullets.length - 1; i >= 0; i--) {
+                    const bullet = this.enemyBullets[i];
+                    bullet.age += deltaTime;
+                    
+                    // Move bullet
+                    bullet.mesh.position.addScaledVector(bullet.velocity, deltaTime);
+                    
+                    // Fade out over time
+                    const t = bullet.age / bullet.life;
+                    if (t > 0.7) {
+                        bullet.mesh.material.opacity = 0.9 * (1 - (t - 0.7) / 0.3);
+                    }
+                    
+                    // Check collision with player aircraft
+                    const distanceToPlayer = bullet.mesh.position.distanceTo(this.playerPosition);
+                    if (distanceToPlayer < 15 && this.aircraft) { // Hit radius
+                        // Damage player
+                        this.playerHealth = Math.max(0, this.playerHealth - 2);
+                        this.updatePlayerHealthDisplay();
+                        this.createPlayerHitEffect();
+                        
+                        // Check if player is dead
+                        if (this.playerHealth <= 0) {
+                            this.handlePlayerDeath();
+                        }
+                        
+                        // Remove bullet
+                        this.scene.remove(bullet.mesh);
+                        bullet.mesh.geometry.dispose();
+                        bullet.mesh.material.dispose();
+                        this.enemyBullets.splice(i, 1);
+                        continue;
+                    }
+                    
+                    // Remove old bullets
+                    if (bullet.age >= bullet.life) {
+                        this.scene.remove(bullet.mesh);
+                        bullet.mesh.geometry.dispose();
+                        bullet.mesh.material.dispose();
+                        this.enemyBullets.splice(i, 1);
+                    }
+                }
+            }
+
+            createPlayerHitEffect() {
+                // Visual effect when player gets hit
+                const flash = document.createElement('div');
+                flash.style.cssText = `
+                    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+                    background: radial-gradient(circle, rgba(255,0,0,0.3) 0%, transparent 50%);
+                    pointer-events: none; z-index: 9999;
+                `;
+                document.body.appendChild(flash);
+                
+                setTimeout(() => {
+                    flash.remove();
+                }, 150);
+            }
+            
+            handlePlayerDeath() {
+                // Show game over message
+                const gameOverDiv = document.createElement('div');
+                gameOverDiv.style.cssText = `
+                    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+                    background: rgba(0, 0, 0, 0.8); backdrop-filter: blur(10px);
+                    display: flex; flex-direction: column; justify-content: center; align-items: center;
+                    z-index: 10000; color: white; font-family: 'Segoe UI', sans-serif;
+                `;
+                
+                gameOverDiv.innerHTML = `
+                    <h1 style="font-size: 48px; margin-bottom: 20px; color: #ff4444; text-shadow: 0 0 20px rgba(255, 68, 68, 0.8);">GAME OVER</h1>
+                    <p style="font-size: 20px; margin-bottom: 30px;">Your aircraft was shot down!</p>
+                    <button onclick="location.reload()" style="
+                        padding: 12px 30px; font-size: 18px; background: linear-gradient(135deg, #ff4444, #cc3333);
+                        border: none; border-radius: 8px; color: white; cursor: pointer; font-weight: 600;
+                        box-shadow: 0 4px 15px rgba(255, 68, 68, 0.3); transition: transform 0.2s;
+                    " onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
+                        Restart Game
+                    </button>
+                `;
+                
+                document.body.appendChild(gameOverDiv);
+                
+                // Stop the game loop (optional - you might want to keep some systems running)
+                // this.gameRunning = false;
+            }
+
+            // Calculate lead target position for enemy shooting
+            calculateLeadTarget(shooterPos, targetPos, targetVel, bulletSpeed, accuracy) {
+                // Basic predictive aiming
+                const distance = shooterPos.distanceTo(targetPos);
+                const timeToTarget = distance / bulletSpeed;
+                
+                // Predict where target will be
+                const predictedPos = targetPos.clone().addScaledVector(targetVel, timeToTarget);
+                
+                // Add inaccuracy based on accuracy parameter
+                const inaccuracy = (1.0 - accuracy) * 100; // Convert to units
+                predictedPos.add(new THREE.Vector3(
+                    (Math.random() - 0.5) * inaccuracy,
+                    (Math.random() - 0.5) * inaccuracy * 0.5, // Less vertical spread
+                    (Math.random() - 0.5) * inaccuracy
+                ));
+                
+                return predictedPos;
+            }
+
             // ==== 战舰相关 ====
             createWarships(count=5){
                 for(let i=0;i<count;i++){
@@ -1663,7 +1850,12 @@
                     // Health system
                     health: maxHealth,
                     maxHealth: maxHealth,
-                    healthBar: healthBar
+                    healthBar: healthBar,
+                    // Warship shooting properties
+                    lastShotTime: 0,
+                    shootingRange: 1000, // Reduced range
+                    fireRate: 3.0 + Math.random() * 2.0, // 3.0-5.0 seconds between shots (slower)
+                    accuracy: 0.4 + Math.random() * 0.2 // 40-60% accuracy (less accurate)
                 };
             }
             createSeaScorch(x,z){
@@ -2265,7 +2457,12 @@
                     turretRotation: Math.random() * Math.PI * 2,
                     turretSpeed: turretSpeed,
                     changeDirectionTimer: Math.random() * 8, // Random 0-8 seconds
-                    turretReference: turret // Store reference to turret for rotation
+                    turretReference: turret, // Store reference to turret for rotation
+                    // AA shooting properties
+                    lastShotTime: 0,
+                    shootingRange: 600, // Reduced range for better balance
+                    fireRate: 2.0 + Math.random() * 1.5, // 2.0-3.5 seconds between shots (slower)
+                    accuracy: 0.5 + Math.random() * 0.2 // 50-70% accuracy (less accurate)
                 };
             }
 
@@ -2325,6 +2522,78 @@
                     
                     // Tank body rotation (lightweight)
                     tank.mesh.rotation.y = tank.moveDirection;
+                    
+                    // AA Tank shooting logic (only for AA tanks)
+                    if (tank.isAA && tank.alive) {
+                        const currentTime = performance.now() / 1000;
+                        const timeSinceLastShot = currentTime - tank.lastShotTime;
+                        
+                        if (timeSinceLastShot > tank.fireRate) {
+                            const distanceToPlayer = tank.mesh.position.distanceTo(this.playerPosition);
+                            
+                            if (distanceToPlayer < tank.shootingRange) {
+                                // Calculate lead target position
+                                const leadPosition = this.calculateLeadTarget(
+                                    tank.mesh.position, 
+                                    this.playerPosition, 
+                                    this.playerVelocity,
+                                    400, // Bullet speed
+                                    tank.accuracy
+                                );
+                                
+                                // Create enemy bullet
+                                const bulletStartPos = tank.mesh.position.clone();
+                                bulletStartPos.y += 10; // Shoot from turret height
+                                this.createEnemyBullet(bulletStartPos, leadPosition);
+                                
+                                tank.lastShotTime = currentTime;
+                                
+                                // Aim turret at target (visual only)
+                                if (tank.turretReference) {
+                                    const aimDirection = new THREE.Vector3()
+                                        .subVectors(leadPosition, tank.mesh.position)
+                                        .normalize();
+                                    tank.turretReference.rotation.y = Math.atan2(aimDirection.x, aimDirection.z);
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+
+            // === Warship AI System ===
+            updateWarships(deltaTime) {
+                if (!this.warships) return;
+                
+                const currentTime = performance.now() / 1000;
+                
+                this.warships.forEach((ship, index) => {
+                    if (!ship.alive) return;
+                    
+                    // Warship shooting logic
+                    const timeSinceLastShot = currentTime - ship.lastShotTime;
+                    
+                    if (timeSinceLastShot > ship.fireRate) {
+                        const distanceToPlayer = ship.mesh.position.distanceTo(this.playerPosition);
+                        
+                        if (distanceToPlayer < ship.shootingRange) {
+                            // Calculate lead target position
+                            const leadPosition = this.calculateLeadTarget(
+                                ship.mesh.position,
+                                this.playerPosition,
+                                this.playerVelocity,
+                                350, // Slightly slower bullets than AA tanks
+                                ship.accuracy
+                            );
+                            
+                            // Create enemy bullet from ship
+                            const bulletStartPos = ship.mesh.position.clone();
+                            bulletStartPos.y += 25; // Shoot from ship deck height
+                            this.createEnemyBullet(bulletStartPos, leadPosition, 350);
+                            
+                            ship.lastShotTime = currentTime;
+                        }
+                    }
                 });
             }
 
@@ -3349,15 +3618,23 @@
                 this.updatePropeller(deltaTime);
                 // Tank movement and turret rotation
                 this.updateTanks(deltaTime);
+                // Warship AI and shooting
+                this.updateWarships(deltaTime);
                 // Weapon updates
                 this.tryFireGuns(deltaTime);
                 this.updateBullets(deltaTime);
+                this.updateEnemyBullets(deltaTime);
                 this.updateTankIndicators(deltaTime);
                 
                 // Update health bars for tanks and warships (throttled for performance)
                 this.healthBarUpdateCounter = (this.healthBarUpdateCounter || 0) + 1;
                 if (this.healthBarUpdateCounter % 3 === 0) {
                     this.updateHealthBars();
+                }
+                
+                // Update player health display (throttled)
+                if (this.healthBarUpdateCounter % 10 === 0) {
+                    this.updatePlayerHealthDisplay();
                 }
                 
                 // === 更新GLB模型动画 ===
