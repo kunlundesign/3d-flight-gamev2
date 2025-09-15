@@ -208,6 +208,39 @@
         #sceneSwitcher button:active { transform: scale(.9); }
         #sceneSwitcher button.active { background: linear-gradient(135deg,#3fa9ff,#1e62d0); border-color:#6fc3ff; }
 
+        /* ===== Health Bars ===== */
+        .health-bar-container {
+            position: absolute;
+            transform: translateX(-50%);
+            z-index: 100;
+            pointer-events: none;
+        }
+        
+        .health-bar-bg {
+            width: 60px;
+            height: 6px;
+            background: rgba(0, 0, 0, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 3px;
+            margin-bottom: 2px;
+        }
+        
+        .health-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #ff4444 0%, #ffaa00 50%, #44ff44 100%);
+            border-radius: 2px;
+            transition: width 0.3s ease, background-position 0.3s ease;
+            box-shadow: 0 0 4px rgba(255, 255, 255, 0.4);
+        }
+        
+        .health-bar-text {
+            font-size: 10px;
+            color: white;
+            text-align: center;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
+            font-weight: bold;
+        }
+
         /* ===== Scoreboard & Name Prompt ===== */
         #scoreboardPanel {
             position: fixed; top: 10px; right: 10px; z-index: 1000;
@@ -1442,20 +1475,37 @@
                             if (!tank.alive) continue;
                             const dist = b.mesh.position.distanceTo(tank.mesh.position);
                             if (dist < tank.radius) {
-                                // 命中
-                                tank.alive = false;
-                                this.createExplosion(tank.mesh.position.clone());
+                                // 造成伤害
+                                tank.health = Math.max(0, tank.health - 1);
                                 
-                                // Create smoking tank wreck instead of removing
-                                this.createTankDestroyed(tank.mesh.position.clone(), tank.mesh);
+                                // 创建小爆炸效果
+                                this.createExplosion(tank.mesh.position.clone().add(
+                                    new THREE.Vector3((Math.random()-0.5)*10, 5, (Math.random()-0.5)*10)
+                                ));
                                 
-                                // Keep the scorch mark on ground
-                                this.createScorchMark(tank.mesh.position.x, tank.mesh.position.z);
+                                if (tank.health <= 0) {
+                                    // 坦克被摧毁
+                                    tank.alive = false;
+                                    this.createTankDestroyed(tank.mesh.position.clone(), tank.mesh);
+                                    this.createScorchMark(tank.mesh.position.x, tank.mesh.position.z);
+                                    this.recordKill('tank');
+                                    
+                                    // 清除血条
+                                    if (tank.healthBar) {
+                                        tank.healthBar.container.remove();
+                                    }
+                                } else {
+                                    // 坦克受伤但存活，如果是普通坦克，玩家回血
+                                    if (!tank.isAA) {
+                                        this.playerHealth = Math.min(this.playerMaxHealth, this.playerHealth + 10);
+                                        this.showHealthGain(10);
+                                    }
+                                }
+                                
                                 // 移除子弹
                                 this.scene.remove(b.mesh);
                                 b.mesh.geometry.dispose();
                                 b.mesh.material.dispose();
-                                this.recordKill('tank');
                                 this.bullets.splice(i,1);
                                 break; // 跳出坦克循环
                             }
@@ -1468,15 +1518,30 @@
                             if(!ship.alive) continue;
                             const distS = b.mesh.position.distanceTo(ship.mesh.position);
                             if (distS < ship.radius) {
-                                ship.alive = false;
-                                this.createExplosion(ship.mesh.position.clone().add(new THREE.Vector3(0,5,0)));
-                                this.scene.remove(ship.mesh);
-                                // 海面焦痕 / 浮渣：简单用一个半透明黑圆
-                                this.createSeaScorch(ship.mesh.position.x, ship.mesh.position.z);
+                                // 造成伤害
+                                ship.health = Math.max(0, ship.health - 1);
+                                
+                                // 创建爆炸效果
+                                this.createExplosion(ship.mesh.position.clone().add(
+                                    new THREE.Vector3((Math.random()-0.5)*20, 8, (Math.random()-0.5)*20)
+                                ));
+                                
+                                if (ship.health <= 0) {
+                                    // 军舰被摧毁
+                                    ship.alive = false;
+                                    this.scene.remove(ship.mesh);
+                                    this.createSeaScorch(ship.mesh.position.x, ship.mesh.position.z);
+                                    this.recordKill('ship');
+                                    
+                                    // 清除血条
+                                    if (ship.healthBar) {
+                                        ship.healthBar.container.remove();
+                                    }
+                                }
+                                
                                 this.scene.remove(b.mesh);
                                 b.mesh.geometry.dispose();
                                 b.mesh.material.dispose();
-                                this.recordKill('ship');
                                 this.bullets.splice(i,1);
                                 break;
                             }
@@ -1583,7 +1648,21 @@
                 });
                 g.position.set(x,0,z);
                 this.scene.add(g);
-                return { mesh: g, alive: true, radius: hullWidth*2, indicator: arrowGroup };
+                
+                // Create health bar for ship
+                const healthBar = this.createHealthBar();
+                const maxHealth = 6; // Ships are tougher than tanks
+                
+                return { 
+                    mesh: g, 
+                    alive: true, 
+                    radius: hullWidth*2, 
+                    indicator: arrowGroup,
+                    // Health system
+                    health: maxHealth,
+                    maxHealth: maxHealth,
+                    healthBar: healthBar
+                };
             }
             createSeaScorch(x,z){
                 const r = 18 + Math.random()*12;
@@ -2155,16 +2234,28 @@
                 this.alignTankToGround(group);
                 this.scene.add(group);
                 
+                // Create health bar
+                const healthBar = this.createHealthBar();
+                
                 // Add movement properties for dynamic animation
                 const moveSpeed = 15 + Math.random() * 10; // 15-25 units per second
                 const direction = Math.random() * Math.PI * 2; // Random initial direction
                 const turretSpeed = (Math.random() - 0.5) * 0.3; // -0.15 to +0.15 rad/s
+                
+                // Determine tank type and health
+                const isAA = aaVariant;
+                const maxHealth = isAA ? 4 : 3; // AA tanks are tougher
                 
                 return { 
                     mesh: group, 
                     alive: true, 
                     radius: 16, 
                     indicator: arrowGroup,
+                    // Health system
+                    health: maxHealth,
+                    maxHealth: maxHealth,
+                    healthBar: healthBar,
+                    isAA: isAA,
                     // Movement properties
                     velocity: new THREE.Vector3(),
                     moveDirection: direction,
@@ -2322,6 +2413,99 @@
                     if (group.children.length>0) requestAnimationFrame(animate); else this.scene.remove(group);
                 };
                 animate();
+            }
+
+            // ===== Health Bar System =====
+            createHealthBar() {
+                const container = document.createElement('div');
+                container.className = 'health-bar-container';
+                container.style.display = 'none';
+                
+                const bg = document.createElement('div');
+                bg.className = 'health-bar-bg';
+                
+                const fill = document.createElement('div');
+                fill.className = 'health-bar-fill';
+                fill.style.width = '100%';
+                
+                const text = document.createElement('div');
+                text.className = 'health-bar-text';
+                
+                bg.appendChild(fill);
+                container.appendChild(bg);
+                container.appendChild(text);
+                document.body.appendChild(container);
+                
+                return { container, fill, text };
+            }
+
+            updateHealthBar(entity, camera) {
+                if (!entity.health || !entity.healthBar || !entity.alive) return;
+                
+                const { container, fill, text } = entity.healthBar;
+                const worldPos = entity.mesh.position.clone();
+                worldPos.y += 25; // Offset above entity
+                
+                // Convert 3D position to screen coordinates
+                const screenPos = worldPos.clone();
+                screenPos.project(camera);
+                
+                // Check if entity is in view
+                if (screenPos.z > 1 || screenPos.x < -1 || screenPos.x > 1 || screenPos.y < -1 || screenPos.y > 1) {
+                    container.style.display = 'none';
+                    return;
+                }
+                
+                // Convert to pixel coordinates
+                const x = (screenPos.x * 0.5 + 0.5) * window.innerWidth;
+                const y = (screenPos.y * -0.5 + 0.5) * window.innerHeight;
+                
+                // Update position
+                container.style.left = x + 'px';
+                container.style.top = y + 'px';
+                container.style.display = 'block';
+                
+                // Update health percentage
+                const healthPercent = (entity.health / entity.maxHealth) * 100;
+                fill.style.width = healthPercent + '%';
+                
+                // Update color based on health
+                if (healthPercent > 66) {
+                    fill.style.background = 'linear-gradient(90deg, #44ff44, #88ff88)';
+                } else if (healthPercent > 33) {
+                    fill.style.background = 'linear-gradient(90deg, #ffaa00, #ffdd44)';
+                } else {
+                    fill.style.background = 'linear-gradient(90deg, #ff4444, #ff7777)';
+                }
+                
+                // Update text
+                text.textContent = `${entity.health}/${entity.maxHealth}`;
+            }
+
+            updateHealthBars() {
+                // Update health bars for all tanks
+                if (this.tanks && this.tanks.length > 0) {
+                    this.tanks.forEach(tank => {
+                        if (tank.alive && tank.healthBar && tank.health < tank.maxHealth) {
+                            this.updateHealthBar(tank, this.camera);
+                        } else if (tank.healthBar) {
+                            // Hide health bar if tank is at full health
+                            tank.healthBar.container.style.display = 'none';
+                        }
+                    });
+                }
+                
+                // Update health bars for all warships
+                if (this.warships && this.warships.length > 0) {
+                    this.warships.forEach(ship => {
+                        if (ship.alive && ship.healthBar && ship.health < ship.maxHealth) {
+                            this.updateHealthBar(ship, this.camera);
+                        } else if (ship.healthBar) {
+                            // Hide health bar if ship is at full health
+                            ship.healthBar.container.style.display = 'none';
+                        }
+                    });
+                }
             }
 
             createScorchMark(x,z){
@@ -3167,6 +3351,12 @@
                 this.tryFireGuns(deltaTime);
                 this.updateBullets(deltaTime);
                 this.updateTankIndicators(deltaTime);
+                
+                // Update health bars for tanks and warships (throttled for performance)
+                this.healthBarUpdateCounter = (this.healthBarUpdateCounter || 0) + 1;
+                if (this.healthBarUpdateCounter % 3 === 0) {
+                    this.updateHealthBars();
+                }
                 
                 // === 更新GLB模型动画 ===
                 if (this.modelAnimationMixer) {
