@@ -279,7 +279,7 @@
         
         /* Player Health Display */
         #playerHealthDisplay {
-            position: fixed; top: 20px; left: 20px; z-index: 1200;
+            position: fixed; top: 80px; right: 20px; z-index: 1200;
             background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(8px);
             padding: 12px 20px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.2);
             color: white; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -1616,12 +1616,12 @@
 
             // ==== 敌方射击系统 ====
             createEnemyBullet(position, targetPosition, speed = 400) {
-                // Create bullet geometry and material
-                const geometry = new THREE.CylinderGeometry(0.3, 0.3, 6, 6);
+                // Create bullet geometry and material (same as player bullets)
+                const geometry = new THREE.SphereGeometry(0.45, 10, 10);
                 const material = new THREE.MeshBasicMaterial({ 
-                    color: 0xff4444,
+                    color: 0xfff066, // Same yellow color as player bullets
                     transparent: true,
-                    opacity: 0.9
+                    opacity: 0.95
                 });
                 const mesh = new THREE.Mesh(geometry, material);
                 
@@ -1632,9 +1632,6 @@
                 const direction = new THREE.Vector3()
                     .subVectors(targetPosition, position)
                     .normalize();
-                
-                // Point bullet in direction of travel
-                mesh.lookAt(position.clone().add(direction));
                 
                 // Add to scene
                 this.scene.add(mesh);
@@ -1650,6 +1647,16 @@
                 this.enemyBullets.push(bullet);
                 
                 return bullet;
+            }
+            
+            createEnemyMuzzleFlash(position) {
+                // Create muzzle flash with same style as player
+                const flashGeo = new THREE.SphereGeometry(0.2, 8, 8);
+                const flashMat = new THREE.MeshBasicMaterial({ color: 0xffdd44 });
+                const flash = new THREE.Mesh(flashGeo, flashMat);
+                flash.position.copy(position);
+                this.scene.add(flash);
+                this.muzzleFlashes.push({ mesh: flash, age: 0, life: 0.12 });
             }
 
             updateEnemyBullets(deltaTime) {
@@ -2546,6 +2553,9 @@
                                 bulletStartPos.y += 10; // Shoot from turret height
                                 this.createEnemyBullet(bulletStartPos, leadPosition);
                                 
+                                // Create muzzle flash for AA tank
+                                this.createEnemyMuzzleFlash(bulletStartPos);
+                                
                                 tank.lastShotTime = currentTime;
                                 
                                 // Aim turret at target (visual only)
@@ -2590,6 +2600,9 @@
                             const bulletStartPos = ship.mesh.position.clone();
                             bulletStartPos.y += 25; // Shoot from ship deck height
                             this.createEnemyBullet(bulletStartPos, leadPosition, 350);
+                            
+                            // Create muzzle flash for warship
+                            this.createEnemyMuzzleFlash(bulletStartPos);
                             
                             ship.lastShotTime = currentTime;
                         }
