@@ -902,6 +902,95 @@
             }
 
             createDefaultAircraft() {
+                // Load red-plane.glb as default aircraft
+                const loader = new GLTFLoader();
+                
+                loader.load('./red-plane.glb', (gltf) => {
+                    const model = gltf.scene;
+                    
+                    // Scale the aircraft to be similar size as tanks (around 46 units)
+                    const targetSize = 46; // Similar to tank length
+                    const box = new THREE.Box3().setFromObject(model);
+                    const size = box.getSize(new THREE.Vector3());
+                    const currentMaxSize = Math.max(size.x, size.y, size.z);
+                    const scaleRatio = targetSize / currentMaxSize;
+                    
+                    model.scale.set(scaleRatio, scaleRatio, scaleRatio);
+                    console.log(`Red plane scaled: ${currentMaxSize.toFixed(2)} → ${targetSize} units (${scaleRatio.toFixed(3)}x)`);
+                    
+                    // === 动画系统设置 ===
+                    this.modelAnimations = gltf.animations; // 存储动画数据
+                    this.modelAnimationMixer = null;
+                    this.activeAnimations = []; // 存储当前播放的动画
+                    
+                    // 如果模型包含动画，创建动画混合器
+                    if (gltf.animations && gltf.animations.length > 0) {
+                        this.modelAnimationMixer = new THREE.AnimationMixer(model);
+                        
+                        console.log(`Red plane: Found ${gltf.animations.length} animations:`, gltf.animations.map(anim => anim.name));
+                        
+                        // 自动播放所有动画（通常用于螺旋桨、引擎等循环动画）
+                        gltf.animations.forEach((clip, index) => {
+                            const action = this.modelAnimationMixer.clipAction(clip);
+                            action.setLoop(THREE.LoopRepeat);
+                            action.clampWhenFinished = false;
+                            
+                            // 自动识别动画类型
+                            const animName = clip.name.toLowerCase();
+                            if (animName.includes('propeller') || 
+                                animName.includes('rotor') || 
+                                animName.includes('engine') ||
+                                animName.includes('fan') ||
+                                animName.includes('spin')) {
+                                // 快速循环动画（螺旋桨等）
+                                action.timeScale = 2.0; // 2倍速度
+                                action.play();
+                                this.activeAnimations.push(action);
+                                console.log(`Auto-playing fast animation: ${clip.name}`);
+                            } else {
+                                // 其他动画默认也播放
+                                action.timeScale = 1.0;
+                                action.play();
+                                this.activeAnimations.push(action);
+                                console.log(`Auto-playing animation: ${clip.name}`);
+                            }
+                        });
+                    }
+                    
+                    // Enhance materials for better lighting
+                    model.traverse((child) => {
+                        if (child.isMesh) {
+                            child.castShadow = true;
+                            child.receiveShadow = true;
+                            
+                            if (child.material) {
+                                if (Array.isArray(child.material)) {
+                                    child.material.forEach(mat => {
+                                        this.enhanceMaterial(mat);
+                                    });
+                                } else {
+                                    this.enhanceMaterial(child.material);
+                                }
+                            }
+                        }
+                    });
+                    
+                    model.position.copy(this.playerPosition);
+                    this.loadedModel = model;
+                    this.aircraft = model;
+                    this.scene.add(model);
+                    
+                    // Create nose cannons
+                    this.createNoseCannons();
+                    
+                    console.log('Red plane loaded as default aircraft (0.9x scale)');
+                }, undefined, (error) => {
+                    console.error('Failed to load red-plane.glb, falling back to built-in aircraft:', error);
+                    this.createBuiltInAircraft(); // Fallback to original aircraft
+                });
+            }
+            
+            createBuiltInAircraft() {
                 // Create enhanced P-51 Mustang style fighter aircraft with premium materials
                 const planeGroup = new THREE.Group();
                 
@@ -1365,6 +1454,8 @@
                 }
                 this.gunBarrels = []; // Clear barrel references
                 this.createNoseCannons(); // Recreate with full visibility
+                
+                console.log('Built-in aircraft loaded as fallback');
             }
 
             // ================= Nose Cannon System =================
