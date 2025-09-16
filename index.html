@@ -296,6 +296,17 @@
             from { opacity: 0.8; }
             to { opacity: 1.0; }
         }
+        
+        @keyframes slideInFade {
+            from { 
+                opacity: 0; 
+                transform: translateX(20px); 
+            }
+            to { 
+                opacity: 1; 
+                transform: translateX(0); 
+            }
+        }
     </style>
 </head>
 <body>
@@ -335,6 +346,7 @@
             <p><strong>Q / E:</strong> Roll left/right (360° barrel rolls available!)</p>
             <p><strong>Shift / Space:</strong> Increase throttle</p>
             <p><strong>Ctrl / X:</strong> Decrease throttle</p>
+            <p><strong>C:</strong> Switch camera view (4 different angles)</p>
             <p><strong>R:</strong> Toggle weather (Rain/Sunny)</p>
             
             <h4 style="margin-top: 15px; color: #ffaa44;">Combat Guide:</h4>
@@ -373,6 +385,31 @@
                 this.playerSpeed = 60; // Current speed in units/sec
                 this.playerHealth = 30; // Player health (simple difficulty)
                 this.playerMaxHealth = 30; // Maximum player health
+                
+                // Camera view system
+                this.currentViewIndex = 0;
+                this.viewModes = [
+                    {
+                        name: 'Chase View',
+                        offset: new THREE.Vector3(0, 30, -80), // Behind and above
+                        description: 'Default chase camera'
+                    },
+                    {
+                        name: 'Northeast View', 
+                        offset: new THREE.Vector3(100, 60, 100), // Northeast isometric
+                        description: 'Northeast isometric view'
+                    },
+                    {
+                        name: 'Northwest View',
+                        offset: new THREE.Vector3(-100, 60, 100), // Northwest isometric  
+                        description: 'Northwest isometric view'
+                    },
+                    {
+                        name: 'Tactical View',
+                        offset: new THREE.Vector3(0, 200, -50), // High above, slightly behind
+                        description: 'Top-down tactical view'
+                    }
+                ];
                 
                 // Flight control state
                 this.inputState = {
@@ -3290,11 +3327,52 @@
             setupKeyboardControls() {
                 document.addEventListener('keydown', (event) => {
                     this.inputState.keys.add(event.code);
+                    
+                    // Camera view switching with C key
+                    if (event.code === 'KeyC') {
+                        this.switchCameraView();
+                    }
                 });
                 
                 document.addEventListener('keyup', (event) => {
                     this.inputState.keys.delete(event.code);
                 });
+            }
+            
+            switchCameraView() {
+                this.currentViewIndex = (this.currentViewIndex + 1) % this.viewModes.length;
+                const currentView = this.viewModes[this.currentViewIndex];
+                
+                // Show view change notification
+                this.showViewChangeNotification(currentView.name);
+            }
+            
+            showViewChangeNotification(viewName) {
+                // Remove existing notification
+                const existingNotification = document.getElementById('viewChangeNotification');
+                if (existingNotification) {
+                    existingNotification.remove();
+                }
+                
+                // Create new notification
+                const notification = document.createElement('div');
+                notification.id = 'viewChangeNotification';
+                notification.style.cssText = `
+                    position: fixed; top: 120px; right: 20px; z-index: 1500;
+                    background: rgba(0, 0, 0, 0.8); backdrop-filter: blur(6px);
+                    color: white; padding: 8px 16px; border-radius: 6px;
+                    font-family: 'Segoe UI', sans-serif; font-size: 14px; font-weight: 600;
+                    border: 1px solid rgba(255, 255, 255, 0.2);
+                    animation: slideInFade 0.3s ease-out;
+                `;
+                notification.textContent = `📷 ${viewName}`;
+                document.body.appendChild(notification);
+                
+                // Auto remove after 2 seconds
+                setTimeout(() => {
+                    notification.style.opacity = '0';
+                    setTimeout(() => notification.remove(), 300);
+                }, 2000);
             }
 
             updateInputFromKeyboard(deltaTime) {
@@ -3468,24 +3546,41 @@
             updateCamera() {
                 if (!this.aircraft) return;
                 
-                // Third-person camera following aircraft
-                const distance = 80;
-                const height = 30;
+                // Get current view mode
+                const currentView = this.viewModes[this.currentViewIndex];
                 
-                // Calculate aircraft forward direction
-                const forward = new THREE.Vector3(0, 0, 1);
-                const rotation = new THREE.Euler(this.inputState.pitch, this.inputState.yaw, this.inputState.roll);
-                forward.applyEuler(rotation);
+                // Calculate aircraft rotation matrix
+                const aircraftRotation = new THREE.Euler(this.inputState.pitch, this.inputState.yaw, this.inputState.roll);
+                const rotationMatrix = new THREE.Matrix4().makeRotationFromEuler(aircraftRotation);
                 
-                // Position camera behind and above aircraft
-                const cameraOffset = forward.clone().multiplyScalar(-distance);
-                cameraOffset.y += height;
+                // Apply aircraft rotation to the camera offset (for chase view)
+                let cameraOffset;
+                if (this.currentViewIndex === 0) {
+                    // Chase view - camera follows aircraft orientation
+                    cameraOffset = currentView.offset.clone().applyMatrix4(rotationMatrix);
+                } else {
+                    // Fixed side/top views - don't rotate with aircraft
+                    cameraOffset = currentView.offset.clone();
+                }
                 
+                // Calculate target camera position
                 const targetPosition = this.playerPosition.clone().add(cameraOffset);
                 
                 // Smooth camera movement
                 this.camera.position.lerp(targetPosition, 0.1);
-                this.camera.lookAt(this.playerPosition);
+                
+                // Camera look target
+                let lookTarget;
+                if (this.currentViewIndex === 3) {
+                    // Tactical view - look slightly ahead of aircraft
+                    const forward = new THREE.Vector3(0, 0, 1).applyMatrix4(rotationMatrix);
+                    lookTarget = this.playerPosition.clone().add(forward.multiplyScalar(30));
+                } else {
+                    // All other views look at aircraft center
+                    lookTarget = this.playerPosition.clone();
+                }
+                
+                this.camera.lookAt(lookTarget);
             }
 
             updateClouds(deltaTime) {
