@@ -148,3 +148,70 @@ Contributions are welcome! Please feel free to submit pull requests or create is
 ---
 
 **Have fun flying and destroying tanks! 🛩️💥**
+
+## 🌐 Deploy to GitHub Pages
+
+### 1. Set Base Path (Already Configured)
+`vite.config.ts` dynamically sets `base` when `GITHUB_PAGES=true` or you provide `BASE_PATH`. For this repository named `3d-flight-gamev2`, the GitHub Pages base will be:
+
+```
+https://<your-username>.github.io/3d-flight-gamev2/
+```
+
+### 2. Build Project
+```bash
+GITHUB_PAGES=true npm run build
+```
+This produces the `dist/` folder with correct asset paths like `/3d-flight-gamev2/models/red-plane.glb`.
+
+### 3. Deploy (Two Options)
+
+#### Option A: Manual (gh-pages branch)
+```bash
+git add dist -f
+git commit -m "Deploy"
+git subtree push --prefix dist origin gh-pages
+```
+
+#### Option B: GitHub Actions (Recommended)
+Create `.github/workflows/deploy.yml`:
+```yaml
+name: Deploy
+on:
+  push:
+    branches: [ main ]
+permissions:
+  contents: write
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - run: GITHUB_PAGES=true npm run build
+      - name: Deploy
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          branch: gh-pages
+          folder: dist
+```
+
+### 4. Model & Asset Paths
+The aircraft model now resides at: `public/models/red-plane.glb` → served as: `/models/red-plane.glb` (automatically prefixed by `base`).
+
+### 5. Local Test With Base
+```bash
+BASE_PATH=/3d-flight-gamev2/ npm run dev
+```
+
+### 6. Common Deployment Pitfalls
+| Issue | Cause | Fix |
+|-------|-------|-----|
+| 404 on GLB | Wrong base path | Ensure `GITHUB_PAGES=true` on build |
+| Plane not loading | Cached old bundle | Hard refresh (Cmd+Shift+R) |
+| Black screen | Script path broken | Inspect network panel for 404s |
+
+---

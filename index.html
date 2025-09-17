@@ -4,6 +4,21 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sky Warriors - GLB Flight Simulator</title>
+        <script>
+            // Determine base path at runtime (supports GitHub Pages / subfolder deploy)
+            (function(){
+                try {
+                    var base = document.baseURI || '/';
+                    var origin = location.origin + '/';
+                    if (base.startsWith(origin)) {
+                        base = '/' + base.substring(origin.length); // keep trailing path
+                    }
+                    if (!base.endsWith('/')) base += '/';
+                    window.__APP_BASE__ = base; // e.g. '/3d-flight-gamev2/' or '/'
+                    console.log('[BaseDetection] base =', window.__APP_BASE__);
+                } catch(e){ window.__APP_BASE__ = '/'; }
+            })();
+        </script>
     <style>
         body {
             margin: 0;
@@ -902,10 +917,18 @@
             }
 
             createDefaultAircraft() {
-                // Load red-plane.glb as default aircraft
-                const loader = new GLTFLoader();
+                console.log('Attempting to load red-plane.glb...');
                 
-                loader.load('./red-plane.glb', (gltf) => {
+                // Direct GLTFLoader approach with proper HTTP path
+                const loader = new GLTFLoader();
+                // Use BASE_URL (Vite injects it) for GitHub Pages sub-path compatibility
+                // In Vite environment import.meta.env.BASE_URL is injected. Fallback to '/' when opened directly.
+                const baseUrl = window.__APP_BASE__ || '/';
+                const modelPath = baseUrl + 'models/red-plane.glb';
+                console.log('Loading from path:', modelPath, ' baseUrl:', baseUrl, ' (runtime)');
+                
+                loader.load(modelPath, (gltf) => {
+                    console.log('✅ Successfully loaded red-plane.glb');
                     const model = gltf.scene;
                     
                     // Scale the aircraft to be similar size as tanks (around 46 units)
@@ -978,15 +1001,20 @@
                     model.position.copy(this.playerPosition);
                     this.loadedModel = model;
                     this.aircraft = model;
+                    model.userData.aircraftType = 'red-plane-glb'; // 标记为GLB飞机
                     this.scene.add(model);
+                    
+                    console.log('✅ RED PLANE GLB ADDED TO SCENE at position:', model.position);
+                    console.log('✅ Aircraft type set to:', model.userData.aircraftType);
                     
                     // Create nose cannons
                     this.createNoseCannons();
                     
-                    console.log('Red plane loaded as default aircraft (0.9x scale)');
+                    console.log('Red plane loaded as default aircraft');
                 }, undefined, (error) => {
-                    console.error('Failed to load red-plane.glb, falling back to built-in aircraft:', error);
-                    this.createBuiltInAircraft(); // Fallback to original aircraft
+                    console.error('❌ GLTFLoader error:', error);
+                    console.log('🔄 Falling back to built-in aircraft');
+                    this.createBuiltInAircraft();
                 });
             }
             
@@ -1445,7 +1473,11 @@
                 // Store references
                 this.loadedModel = null; // Clear custom model reference for visible cannons
                 this.aircraft = planeGroup;
+                planeGroup.userData.aircraftType = 'built-in-aircraft'; // 标记为内置飞机
                 this.scene.add(this.aircraft);
+                
+                console.log('⚠️ BUILT-IN AIRCRAFT CREATED as fallback');
+                console.log('⚠️ Aircraft type set to:', planeGroup.userData.aircraftType);
                 
                 // Remove existing cannons and recreate with proper visibility
                 const existingCannons = this.aircraft.getObjectByName('NoseCannons');
